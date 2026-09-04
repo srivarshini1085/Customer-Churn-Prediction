@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "customer-churn-prediction"
+version = "2.0.0"
+description = "Real-time telco customer churn service: calibrated model, versioned registry, REST API, batch scoring, drift monitoring and a Streamlit dashboard."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "scipy>=1.10.0",
+    "joblib>=1.3.0",
+    "streamlit>=1.30.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "prometheus-client>=0.20",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.5"]
+
+[project.scripts]
+churn = "churn.cli:main"
+
+[tool.setuptools]
+packages = ["churn", "churn.service"]
+
+[tool.setuptools.package-data]
+churn = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient`:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["notebooks", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "S101"]
+"src/*" = ["E402"]
+"churn/service/routes.py" = ["B008"]  # FastAPI Depends() in defaults is the idiom
+"api.py" = ["E402"]

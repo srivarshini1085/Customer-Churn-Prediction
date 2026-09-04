@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python -c \"import json; nb=json.load\\(open\\(r'notebooks/customer_churn_eda.ipynb', encoding='utf-8'\\)\\); [print\\('--- CELL',i,c['cell_type'],'---\\\\n'+''.join\\(c['source']\\)+'\\\\n'\\) for i,c in enumerate\\(nb['cells']\\)]\")",
+      "PowerShell(& \".\\\\.venv\\\\Scripts\\\\python.exe\" \"C:\\\\Users\\\\msarw\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-msarw-Downloads-Customer-Churn-Prediction-Customer-Churn-Prediction\\\\d6eb53e5-2a35-48aa-8e02-c215e64daede\\\\scratchpad\\\\dump_nb.py\")",
+      "PowerShell(Get-Command *)"
+    ]
+  }
+}

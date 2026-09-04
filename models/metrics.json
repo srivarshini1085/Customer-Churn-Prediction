@@ -1,0 +1,100 @@
+{
+  "selected_model": "logistic_regression",
+  "selection_metric": "roc_auc",
+  "threshold": 0.6,
+  "candidates": [
+    {
+      "name": "logistic_regression",
+      "best_params": {
+        "C": 1.0
+      },
+      "cv_scores": {
+        "roc_auc": 0.8462951400446114,
+        "pr_auc": 0.6641807813170594,
+        "f1": 0.6280632581237923,
+        "recall": 0.7979933110367894,
+        "precision": 0.5181097818791551
+      },
+      "cv_score_std": {
+        "roc_auc": 0.011364324022736606,
+        "pr_auc": 0.01316373363932558,
+        "f1": 0.02007470490760277,
+        "recall": 0.03679537803204029,
+        "precision": 0.015949068897647977
+      }
+    },
+    {
+      "name": "random_forest",
+      "best_params": {
+        "max_depth": 10,
+        "min_samples_leaf": 5
+      },
+      "cv_scores": {
+        "roc_auc": 0.8464492998809761,
+        "pr_auc": 0.6608365490673214,
+        "f1": 0.6299107537920499,
+        "recall": 0.737123745819398,
+        "precision": 0.5501244406363794
+      },
+      "cv_score_std": {
+        "roc_auc": 0.008706386381803608,
+        "pr_auc": 0.019299110096645585,
+        "f1": 0.01994471493665452,
+        "recall": 0.031130638871491905,
+        "precision": 0.015353697345148288
+      }
+    },
+    {
+      "name": "hist_gradient_boosting",
+      "best_params": {
+        "l2_regularization": 1.0,
+        "learning_rate": 0.05,
+        "max_depth": 6
+      },
+      "cv_scores": {
+        "roc_auc": 0.8450310176643544,
+        "pr_auc": 0.6619052963105375,
+        "f1": 0.6338164769837034,
+        "recall": 0.777257525083612,
+        "precision": 0.5351578757337512
+      },
+      "cv_score_std": {
+        "roc_auc": 0.008629912741315561,
+        "pr_auc": 0.02050768138880518,
+        "f1": 0.01606640579752075,
+        "recall": 0.01899005962084068,
+        "precision": 0.015448821677411542
+      }
+    }
+  ],
+  "test_metrics": {
+    "roc_auc": 0.8417241468392364,
+    "pr_auc": 0.6348962665974396,
+    "tuned": {
+      "threshold": 0.6,
+      "precision": 0.559748427672956,
+      "recall": 0.713903743315508,
+      "f1": 0.627497062279671,
+      "accuracy": 0.7750177430801988,
+      "confusion_matrix": {
+        "tn": 825,
+        "fp": 210,
+        "fn": 107,
+        "tp": 267
+      }
+    },
+    "default_0.5": {
+      "threshold": 0.5,
+      "precision": 0.4991596638655462,
+      "recall": 0.7941176470588235,
+      "f1": 0.6130030959752322,
+      "accuracy": 0.7338537970191625,
+      "confusion_matrix": {
+        "tn": 737,
+        "fp": 298,
+        "fn": 77,
+        "tp": 297
+      }
+    }
+  }
+}
