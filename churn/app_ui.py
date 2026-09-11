@@ -10,7 +10,6 @@ import streamlit as st
 from churn import config
 from churn.schema import GROUPS, INPUT_FIELDS
 
-
 # ============================================================
 # PAGE CONFIG
 # ============================================================
