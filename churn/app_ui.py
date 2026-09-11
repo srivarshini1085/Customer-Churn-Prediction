@@ -1,18 +1,14 @@
-"""Customer Churn Prediction Streamlit Dashboard."""
-
 from __future__ import annotations
 
-from typing import Any
-
 import io
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 from churn import config
-from churn.schema import GROUPS, INPUT_FIELDS, Field
-
+from churn.schema import GROUPS, INPUT_FIELDS
 
 # ============================================================
 # PAGE CONFIG
@@ -26,1531 +22,708 @@ st.set_page_config(
 
 
 # ============================================================
-# COMMON SETTINGS
+# HELPER FUNCTIONS
 # ============================================================
 
-_BANNER = {
-    "High": st.error,
-    "Moderate": st.warning,
-    "Low": st.success,
-}
-
-
-# ============================================================
-# MODEL LOADING
-# ============================================================
-
-@st.cache_resource(show_spinner="Loading model...")
 def _local_model():
+    """Load the local churn prediction model."""
     from churn.predict import load_model
 
     return load_model()
 
 
-# ============================================================
-# DATA LOADING
-# ============================================================
-
-@st.cache_data
-def load_dataset() -> pd.DataFrame:
-    """Load and clean the Telco Customer Churn dataset."""
-
-    path = config.DATA_PATH
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Dataset not found at: {path}"
-        )
-
-    df = pd.read_csv(path)
-
-    # Remove unwanted spaces from column names
-    df.columns = df.columns.str.strip()
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # Telco dataset contains blank strings in TotalCharges.
-    # Convert them to NaN and then numeric.
-    # This fixes the:
-    # "Cannot use median strategy with non-numeric data"
-    # error.
-    # --------------------------------------------------------
-
-    if "TotalCharges" in df.columns:
-        df["TotalCharges"] = (
-            df["TotalCharges"]
-            .replace(r"^\s*$", np.nan, regex=True)
-        )
-
-        df["TotalCharges"] = pd.to_numeric(
-            df["TotalCharges"],
-            errors="coerce",
-        )
-
-    if "tenure" in df.columns:
-        df["tenure"] = pd.to_numeric(
-            df["tenure"],
-            errors="coerce",
-        )
-
-    if "MonthlyCharges" in df.columns:
-        df["MonthlyCharges"] = pd.to_numeric(
-            df["MonthlyCharges"],
-            errors="coerce",
-        )
-
-    if "SeniorCitizen" in df.columns:
-        df["SeniorCitizen"] = pd.to_numeric(
-            df["SeniorCitizen"],
-            errors="coerce",
-        )
-
-    return df
-
-
-# ============================================================
-# CLEAN FEATURES FOR MODEL
-# ============================================================
-
-def clean_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepare customer features before sending them to the model."""
-
-    data = df.copy()
-
-    # Make sure all expected columns exist
-    missing = [
-        col
-        for col in config.FEATURE_COLUMNS
-        if col not in data.columns
-    ]
-
-    if missing:
-        raise ValueError(
-            f"Missing required columns: {missing}"
-        )
-
-    # Numeric columns
-    for col in config.NUMERIC_COLUMNS:
-        data[col] = pd.to_numeric(
-            data[col],
-            errors="coerce",
-        )
-
-    # SeniorCitizen
-    if "SeniorCitizen" in data.columns:
-        data["SeniorCitizen"] = pd.to_numeric(
-            data["SeniorCitizen"],
-            errors="coerce",
-        )
-
-    # Do not manually fill categorical values here.
-    # The trained pipeline handles categorical processing.
-
-    return data[config.FEATURE_COLUMNS]
-
-
-# ============================================================
-# SINGLE CUSTOMER PREDICTION
-# ============================================================
-
 def _score(features: dict[str, Any]) -> dict[str, Any]:
-    """Run prediction using API or local model."""
+    """Score a customer using the configured API or local model."""
 
     api_url = config.settings.api_url
 
-    # --------------------------------------------------------
-    # API MODE
-    # --------------------------------------------------------
-
     if api_url:
-
         import httpx
 
-        resp = httpx.post(
-            f"{api_url.rstrip('/')}/predict",
-            json=features,
-            timeout=10,
-        )
-
-        resp.raise_for_status()
-
-        body = resp.json()
-
-        meta = httpx.get(
-            f"{api_url.rstrip('/')}/model",
-            timeout=10,
-        ).json()
-
-        body["top_factors"] = [
-            (
-                f["feature"],
-                f["contribution"],
+        try:
+            response = httpx.post(
+                f"{api_url.rstrip('/')}/predict",
+                json=features,
+                timeout=10,
             )
-            for f in body.get("top_factors", [])
-        ]
+            response.raise_for_status()
 
-        body["model_meta"] = meta
+            result = response.json()
 
-        return body
+            try:
+                model_response = httpx.get(
+                    f"{api_url.rstrip('/')}/model",
+                    timeout=10,
+                )
+                if model_response.is_success:
+                    model_info = model_response.json()
+                    result.setdefault("model_meta", model_info)
+            except Exception:
+                pass
 
-    # --------------------------------------------------------
-    # LOCAL MODEL
-    # --------------------------------------------------------
+            return result
+
+        except Exception as exc:
+            st.warning(
+                f"API scoring failed. Using local model instead. Error: {exc}"
+            )
 
     model = _local_model()
 
-    result = model.predict(features)
+    if hasattr(model, "predict_with_details"):
+        return model.predict_with_details(features)
 
-    result["top_factors"] = model.top_factors(
-        features
-    )
+    probability = float(model.predict_proba(features)[0][1])
+    threshold = getattr(model, "threshold", 0.5)
+    churn = probability >= threshold
 
-    result["model_meta"] = {
-        "model_name": model.metadata.get(
-            "model_name"
-        ),
-        "created_at": model.metadata.get(
-            "created_at"
-        ),
-        "metrics": {
-            "roc_auc": model.metadata.get(
-                "test_metrics",
-                {},
-            ).get("roc_auc"),
-            "pr_auc": model.metadata.get(
-                "test_metrics",
-                {},
-            ).get("pr_auc"),
-            "brier": model.metadata.get(
-                "test_metrics",
-                {},
-            ).get("brier"),
-        },
+    if probability >= 0.7:
+        risk_tier = "High"
+    elif probability >= 0.4:
+        risk_tier = "Moderate"
+    else:
+        risk_tier = "Low"
+
+    return {
+        "probability": probability,
+        "churn": churn,
+        "risk_tier": risk_tier,
+        "threshold": threshold,
+        "warnings": [],
+        "top_factors": [],
+        "model_version": getattr(model, "version", "local"),
+        "model_meta": getattr(model, "metadata", {}),
     }
 
-    return result
 
+def _show_result(result: dict[str, Any]) -> None:
+    """Display prediction results."""
 
-# ============================================================
-# INPUT WIDGET
-# ============================================================
+    probability = float(result.get("probability", 0.0))
+    churn = result.get("churn", False)
+    risk_tier = result.get("risk_tier", "Low")
 
-def _input_widget(field: Field) -> Any:
+    st.subheader("Prediction Result")
 
-    if field.name == "SeniorCitizen":
+    col1, col2, col3 = st.columns(3)
 
-        choice = st.selectbox(
-            field.label,
-            ["No", "Yes"],
-            index=int(field.default),
-            help=field.help,
+    with col1:
+        st.metric(
+            "Churn Probability",
+            f"{probability * 100:.1f}%",
         )
 
-        return 1 if choice == "Yes" else 0
-
-    if field.kind == "choice":
-
-        options = list(
-            field.choices or ()
+    with col2:
+        st.metric(
+            "Prediction",
+            "Likely to Churn" if churn else "Likely to Stay",
         )
 
-        index = (
-            options.index(field.default)
-            if field.default in options
-            else 0
+    with col3:
+        st.metric(
+            "Risk Tier",
+            risk_tier,
         )
 
-        return st.selectbox(
-            field.label,
-            options,
-            index=index,
-            help=field.help,
-        )
+    if risk_tier == "High":
+        st.error("⚠️ High churn risk")
+    elif risk_tier == "Moderate":
+        st.warning("⚠️ Moderate churn risk")
+    else:
+        st.success("✅ Low churn risk")
 
-    if field.kind == "int":
+    warnings = result.get("warnings") or []
 
-        return int(
-            st.number_input(
-                field.label,
-                min_value=(
-                    int(field.min_value)
-                    if field.min_value is not None
-                    else 0
-                ),
-                max_value=(
-                    int(field.max_value)
-                    if field.max_value is not None
-                    else 1000
-                ),
-                value=int(field.default),
-                step=1,
-                help=field.help,
+    if warnings:
+        st.subheader("Warnings")
+        for warning in warnings:
+            st.warning(str(warning))
+
+    top_factors = result.get("top_factors") or []
+
+    if top_factors:
+        st.subheader("Top Churn Factors")
+
+        if isinstance(top_factors, list):
+            for factor in top_factors:
+                if isinstance(factor, dict):
+                    name = factor.get("feature", factor.get("name", "Feature"))
+                    value = factor.get("value", "")
+                    impact = factor.get("impact", "")
+
+                    text = f"**{name}**"
+
+                    if value != "":
+                        text += f": {value}"
+
+                    if impact != "":
+                        text += f" — {impact}"
+
+                    st.write(text)
+                else:
+                    st.write(f"• {factor}")
+
+    model_meta = result.get("model_meta") or {}
+
+    if model_meta:
+        with st.expander("Model Information"):
+            st.write(
+                "Model version:",
+                result.get("model_version")
+                or model_meta.get("model_version")
+                or model_meta.get("version")
+                or "N/A",
             )
-        )
 
-    return float(
-        st.number_input(
-            field.label,
-            min_value=(
-                float(field.min_value)
-                if field.min_value is not None
-                else 0.0
-            ),
-            value=float(field.default),
-            help=field.help,
-        )
-    )
+            saved_metrics = model_meta.get("test_metrics", {})
 
+            if saved_metrics:
+                st.write("Saved test metrics:")
 
-# ============================================================
-# COLLECT INPUTS
-# ============================================================
+                metric_cols = st.columns(5)
 
-def _collect_inputs() -> dict[str, Any]:
-
-    features: dict[str, Any] = {}
-
-    tabs = st.tabs(GROUPS)
-
-    for tab, group in zip(
-        tabs,
-        GROUPS,
-        strict=True,
-    ):
-
-        with tab:
-
-            columns = st.columns(2)
-
-            fields = [
-                f
-                for f in INPUT_FIELDS
-                if f.group == group
-            ]
-
-            for idx, field in enumerate(fields):
-
-                with columns[idx % 2]:
-
-                    features[field.name] = (
-                        _input_widget(field)
+                with metric_cols[0]:
+                    value = saved_metrics.get("accuracy")
+                    st.metric(
+                        "Accuracy",
+                        f"{value:.3f}" if value is not None else "N/A",
                     )
 
-    return features
+                with metric_cols[1]:
+                    value = saved_metrics.get("precision")
+                    st.metric(
+                        "Precision",
+                        f"{value:.3f}" if value is not None else "N/A",
+                    )
+
+                with metric_cols[2]:
+                    value = saved_metrics.get("recall")
+                    st.metric(
+                        "Recall",
+                        f"{value:.3f}" if value is not None else "N/A",
+                    )
+
+                with metric_cols[3]:
+                    value = saved_metrics.get("f1")
+                    st.metric(
+                        "F1",
+                        f"{value:.3f}" if value is not None else "N/A",
+                    )
+
+                with metric_cols[4]:
+                    value = saved_metrics.get("roc_auc")
+                    st.metric(
+                        "ROC-AUC",
+                        f"{value:.3f}" if value is not None else "N/A",
+                    )
+
+                pr_saved = saved_metrics.get("pr_auc")
+
+                if pr_saved is not None:
+                    st.metric(
+                        "PR-AUC",
+                        f"{pr_saved:.3f}",
+                    )
 
 
 # ============================================================
-# SHOW PREDICTION RESULT
-# ============================================================
-
-def _show_result(
-    result: dict[str, Any]
-) -> None:
-
-    tier = result["risk_tier"]
-
-    st.subheader("🔮 Prediction")
-
-    left, right = st.columns([1, 2])
-
-    left.metric(
-        "Churn Probability",
-        f"{result['probability'] * 100:.1f}%",
-    )
-
-    right.progress(
-        min(
-            result["probability"],
-            1.0,
-        )
-    )
-
-    outcome = (
-        "predicted to churn"
-        if result["churn"]
-        else "predicted to stay"
-    )
-
-    _BANNER[tier](
-        f"**{tier} risk** — customer is "
-        f"{outcome} "
-        f"_(decision threshold "
-        f"{result['threshold']:.2f})_"
-    )
-
-    st.caption(
-        "Recommended action: "
-        f"{config.RISK_ACTIONS[tier]}"
-    )
-
-    # Warnings
-    for warning in result.get(
-        "warnings",
-        [],
-    ):
-        st.warning(
-            f"⚠️ {warning}"
-        )
-
-    # --------------------------------------------------------
-    # TOP FACTORS
-    # --------------------------------------------------------
-
-    factors = result.get(
-        "top_factors",
-        [],
-    )
-
-    if factors:
-
-        st.subheader(
-            "📌 Drivers of this Prediction"
-        )
-
-        for name, value in factors:
-
-            verb = (
-                "raises"
-                if value > 0
-                else "lowers"
-            )
-
-            st.write(
-                f"- **{name}** "
-                f"{verb} churn risk "
-                f"({value:+.3f})"
-            )
-
-    # --------------------------------------------------------
-    # MODEL INFO
-    # --------------------------------------------------------
-
-    meta = result.get(
-        "model_meta",
-        {},
-    )
-
-    metrics = meta.get(
-        "metrics",
-        {},
-    )
-
-    bits = [
-        f"Version `{result.get('model_version', '?')}`",
-        f"Model `{meta.get('model_name', '?')}`",
-    ]
-
-    if metrics.get("roc_auc") is not None:
-
-        bits.append(
-            f"ROC-AUC "
-            f"{metrics['roc_auc']:.3f}"
-        )
-
-    if metrics.get("pr_auc") is not None:
-
-        bits.append(
-            f"PR-AUC "
-            f"{metrics['pr_auc']:.3f}"
-        )
-
-    if metrics.get("brier") is not None:
-
-        bits.append(
-            f"Brier "
-            f"{metrics['brier']:.3f}"
-        )
-
-    st.caption(
-        "  ·  ".join(bits)
-    )
-
-
-# ============================================================
-# PAGE 1 — PREDICTION
+# PREDICTION PAGE
 # ============================================================
 
 def prediction_page() -> None:
+    """Customer churn prediction page."""
 
-    st.header(
-        "🔮 Customer Churn Prediction"
-    )
-
-    mode = (
-        "API"
-        if config.settings.api_url
-        else "local model"
-    )
-
+    st.title("📊 Customer Churn Prediction")
     st.write(
-        "Enter the customer's details across "
-        "the three tabs, then predict the "
-        "probability that they churn."
+        "Enter customer information below to predict the probability of churn."
     )
 
-    st.caption(
-        f"Scoring via {mode}"
-    )
+    features: dict[str, Any] = {}
 
-    if not config.settings.api_url:
+    for group_name, fields in GROUPS.items():
+        st.subheader(group_name)
 
-        try:
+        columns = st.columns(2)
 
-            _local_model()
+        for index, field_name in enumerate(fields):
+            field = INPUT_FIELDS[field_name]
 
-        except FileNotFoundError:
+            with columns[index % 2]:
+                if field.kind == "number":
+                    if field.min_value is not None and field.max_value is not None:
+                        value = st.number_input(
+                            field.label,
+                            min_value=float(field.min_value),
+                            max_value=float(field.max_value),
+                            value=float(
+                                field.default
+                                if field.default is not None
+                                else field.min_value
+                            ),
+                            key=f"prediction_{field_name}",
+                        )
+                    else:
+                        value = st.number_input(
+                            field.label,
+                            value=float(field.default or 0),
+                            key=f"prediction_{field_name}",
+                        )
 
-            st.error(
-                "No trained model found. "
-                "Run `python -m churn train` first."
-            )
+                elif field.kind == "select":
+                    options = field.options or []
 
-            st.stop()
+                    if options:
+                        default_index = 0
 
-    st.divider()
+                        if field.default in options:
+                            default_index = options.index(field.default)
 
-    with st.form(
-        "customer"
+                        value = st.selectbox(
+                            field.label,
+                            options,
+                            index=default_index,
+                            key=f"prediction_{field_name}",
+                        )
+                    else:
+                        value = st.text_input(
+                            field.label,
+                            value=str(field.default or ""),
+                            key=f"prediction_{field_name}",
+                        )
+
+                elif field.kind == "boolean":
+                    value = st.checkbox(
+                        field.label,
+                        value=bool(field.default),
+                        key=f"prediction_{field_name}",
+                    )
+
+                else:
+                    value = st.text_input(
+                        field.label,
+                        value=str(field.default or ""),
+                        key=f"prediction_{field_name}",
+                    )
+
+                features[field_name] = value
+
+    if st.button(
+        "🔮 Predict Churn",
+        type="primary",
+        use_container_width=True,
     ):
-
-        features = _collect_inputs()
-
-        submitted = st.form_submit_button(
-            "🔮 Predict Churn",
-            use_container_width=True,
-        )
-
-    if submitted:
-
-        st.divider()
-
         try:
+            with st.spinner("Making prediction..."):
+                result = _score(features)
 
-            result = _score(
-                features
-            )
-
-            _show_result(
-                result
-            )
+            _show_result(result)
 
         except Exception as exc:
-
-            st.error(
-                f"Scoring failed: {exc}"
-            )
+            st.error(f"Prediction failed: {exc}")
 
 
 # ============================================================
-# PAGE 2 — CHURN ANALYSIS
+# CHURN ANALYSIS PAGE
 # ============================================================
 
-def analysis_page() -> None:
+def churn_analysis_page() -> None:
+    """Analyze churn patterns in uploaded customer data."""
 
-    st.header(
-        "📊 Churn Analysis"
-    )
-
-    st.write(
-        "Explore customer churn patterns "
-        "and understand which customer "
-        "groups have higher churn rates."
-    )
-
-    try:
-
-        df = load_dataset()
-
-    except Exception as exc:
-
-        st.error(
-            f"Could not load dataset: {exc}"
-        )
-
-        return
-
-    if config.TARGET_COLUMN not in df.columns:
-
-        st.error(
-            "Churn column was not found "
-            "in the dataset."
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Convert Churn to numeric
-    # --------------------------------------------------------
-
-    churn_numeric = (
-        df[config.TARGET_COLUMN]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .map({
-            "yes": 1,
-            "no": 0,
-            "1": 1,
-            "0": 0,
-        })
-    )
-
-    df["_churn_numeric"] = churn_numeric
-
-    # --------------------------------------------------------
-    # KPI CARDS
-    # --------------------------------------------------------
-
-    total_customers = len(df)
-
-    churned = int(
-        df["_churn_numeric"]
-        .sum()
-    )
-
-    stayed = (
-        total_customers
-        - churned
-    )
-
-    churn_rate = (
-        churned / total_customers * 100
-        if total_customers
-        else 0
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Total Customers",
-        f"{total_customers:,}",
-    )
-
-    c2.metric(
-        "Churned Customers",
-        f"{churned:,}",
-    )
-
-    c3.metric(
-        "Customers Stayed",
-        f"{stayed:,}",
-    )
-
-    c4.metric(
-        "Overall Churn Rate",
-        f"{churn_rate:.1f}%",
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # CHURN DISTRIBUTION
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📈 Churn Distribution"
-    )
-
-    distribution = (
-        df[config.TARGET_COLUMN]
-        .value_counts()
-    )
-
-    st.bar_chart(
-        distribution
-    )
-
-    # --------------------------------------------------------
-    # CHURN BY CONTRACT
-    # --------------------------------------------------------
-
-    if "Contract" in df.columns:
-
-        st.subheader(
-            "📄 Churn Rate by Contract"
-        )
-
-        contract_rate = (
-            df.groupby("Contract")[
-                "_churn_numeric"
-            ]
-            .mean()
-            .mul(100)
-            .sort_values(
-                ascending=False
-            )
-        )
-
-        st.bar_chart(
-            contract_rate
-        )
-
-        st.dataframe(
-            contract_rate
-            .round(2)
-            .rename(
-                "Churn Rate (%)"
-            )
-        )
-
-    # --------------------------------------------------------
-    # CHURN BY INTERNET SERVICE
-    # --------------------------------------------------------
-
-    if "InternetService" in df.columns:
-
-        st.subheader(
-            "🌐 Churn Rate by Internet Service"
-        )
-
-        internet_rate = (
-            df.groupby(
-                "InternetService"
-            )["_churn_numeric"]
-            .mean()
-            .mul(100)
-            .sort_values(
-                ascending=False
-            )
-        )
-
-        st.bar_chart(
-            internet_rate
-        )
-
-    # --------------------------------------------------------
-    # CHURN BY PAYMENT METHOD
-    # --------------------------------------------------------
-
-    if "PaymentMethod" in df.columns:
-
-        st.subheader(
-            "💳 Churn Rate by Payment Method"
-        )
-
-        payment_rate = (
-            df.groupby(
-                "PaymentMethod"
-            )["_churn_numeric"]
-            .mean()
-            .mul(100)
-            .sort_values(
-                ascending=False
-            )
-        )
-
-        st.bar_chart(
-            payment_rate
-        )
-
-    # --------------------------------------------------------
-    # CHURN BY SENIOR CITIZEN
-    # --------------------------------------------------------
-
-    if "SeniorCitizen" in df.columns:
-
-        st.subheader(
-            "👥 Churn Rate by Senior Citizen"
-        )
-
-        senior_df = df.copy()
-
-        senior_df["Senior Citizen"] = (
-            senior_df["SeniorCitizen"]
-            .map({
-                0: "No",
-                1: "Yes",
-            })
-        )
-
-        senior_rate = (
-            senior_df.groupby(
-                "Senior Citizen"
-            )["_churn_numeric"]
-            .mean()
-            .mul(100)
-        )
-
-        st.bar_chart(
-            senior_rate
-        )
-
-    # --------------------------------------------------------
-    # CHURN BY TENURE
-    # --------------------------------------------------------
-
-    if "tenure" in df.columns:
-
-        st.subheader(
-            "⏳ Churn Rate by Tenure Group"
-        )
-
-        tenure_bins = [
-            -1,
-            12,
-            24,
-            48,
-            1000,
-        ]
-
-        tenure_labels = [
-            "0-12 months",
-            "12-24 months",
-            "24-48 months",
-            "48+ months",
-        ]
-
-        df["Tenure Group"] = pd.cut(
-            df["tenure"],
-            bins=tenure_bins,
-            labels=tenure_labels,
-        )
-
-        tenure_rate = (
-            df.groupby(
-                "Tenure Group",
-                observed=False,
-            )["_churn_numeric"]
-            .mean()
-            .mul(100)
-        )
-
-        st.bar_chart(
-            tenure_rate
-        )
-
-    # --------------------------------------------------------
-    # DATA PREVIEW
-    # --------------------------------------------------------
-
-    with st.expander(
-        "🔎 View Dataset"
-    ):
-
-        st.dataframe(
-            df.drop(
-                columns=[
-                    "_churn_numeric"
-                ],
-                errors="ignore",
-            ),
-            use_container_width=True,
-        )
-
-
-# ============================================================
-# PAGE 3 — MODEL PERFORMANCE
-# ============================================================
-
-def performance_page() -> None:
-
-    st.header(
-        "🤖 Model Performance"
-    )
-
-    st.write(
-        "Evaluate the trained machine "
-        "learning model using the "
-        "available customer dataset."
-    )
-
-    # --------------------------------------------------------
-    # LOAD MODEL
-    # --------------------------------------------------------
-
-    try:
-
-        model = _local_model()
-
-    except Exception as exc:
-
-        st.error(
-            f"Could not load model: {exc}"
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # MODEL INFORMATION
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📋 Model Information"
-    )
-
-    model_name = model.metadata.get(
-        "model_name",
-        "Unknown",
-    )
-
-    version = model.metadata.get(
-        "version",
-        model.version,
-    )
-
-    threshold = model.threshold
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "Model",
-        str(model_name),
-    )
-
-    c2.metric(
-        "Version",
-        str(version),
-    )
-
-    c3.metric(
-        "Decision Threshold",
-        f"{threshold:.3f}",
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # SAVED TEST METRICS
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📈 Saved Test Metrics"
-    )
-
-    saved_metrics = model.metadata.get(
-        "test_metrics",
-        {},
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    roc_saved = saved_metrics.get(
-        "roc_auc"
-    )
-
-    pr_saved = saved_metrics.get(
-        "pr_auc"
-    )
-
-    brier_saved = saved_metrics.get(
-        "brier"
-    )
-
-    accuracy_saved = saved_metrics.get(
-        "accuracy"
-    )
-
-    c1.metric(
-        "ROC-AUC",
-        f"{roc_saved:.3f}"
-        if roc_saved is not None
-        else "N/A",
-    )
-
-    c2.metric(
-        "PR-AUC",
-        f"{pr_saved:.3f}"
-        if pr_saved is not None
-        else "N/A",
-    )
-
-    c3.metric(
-        "Brier",
-        f"{brier_saved:.3f}"
-        if brier_saved is not None
-        else "N/A",
-    )
-
-    c4.metric(
-        "Accuracy",
-        f"{accuracy_saved:.3f}"
-        if accuracy_saved is not None
-        else "N/A",
-    )
-
-    st.divider()
-
-    # --------------------------------------------------------
-    # LOAD DATA
-    # --------------------------------------------------------
-
-    try:
-
-        df = load_dataset()
-
-    except Exception as exc:
-
-        st.error(
-            f"Could not load dataset: {exc}"
-        )
-
-        return
-
-    if config.TARGET_COLUMN not in df.columns:
-
-        st.error(
-            "Target column 'Churn' "
-            "was not found."
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # CLEAN DATA
-    # --------------------------------------------------------
-
-    try:
-
-        X = clean_features(
-            df
-        )
-
-        y = (
-            df[config.TARGET_COLUMN]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .map({
-                "yes": 1,
-                "no": 0,
-                "1": 1,
-                "0": 0,
-            })
-        )
-
-        valid = y.notna()
-
-        X = X.loc[valid]
-        y = y.loc[valid].astype(int)
-
-    except Exception as exc:
-
-        st.error(
-            f"Could not prepare evaluation data: {exc}"
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # PREDICT
-    # --------------------------------------------------------
-
-    try:
-
-        probabilities = (
-            model.pipeline
-            .predict_proba(X)[:, 1]
-        )
-
-        predictions = (
-            probabilities
-            >= threshold
-        ).astype(int)
-
-    except Exception as exc:
-
-        st.error(
-            f"Could not evaluate model: {exc}"
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # CALCULATE METRICS
-    # --------------------------------------------------------
-
-    from sklearn.metrics import (
-        accuracy_score,
-        average_precision_score,
-        classification_report,
-        confusion_matrix,
-        f1_score,
-        precision_score,
-        recall_score,
-        roc_auc_score,
-        roc_curve,
-    )
-
-    accuracy = accuracy_score(
-        y,
-        predictions,
-    )
-
-    precision = precision_score(
-        y,
-        predictions,
-        zero_division=0,
-    )
-
-    recall = recall_score(
-        y,
-        predictions,
-        zero_division=0,
-    )
-
-    f1 = f1_score(
-        y,
-        predictions,
-        zero_division=0,
-    )
-
-    try:
-
-        roc_auc = roc_auc_score(
-            y,
-            probabilities,
-        )
-
-    except ValueError:
-
-        roc_auc = 0.0
-
-    try:
-
-        pr_auc = average_precision_score(
-            y,
-            probabilities,
-        )
-
-    except ValueError:
-
-        pr_auc = 0.0
-
-    # --------------------------------------------------------
-    # CURRENT EVALUATION METRICS
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📊 Evaluation Metrics"
-    )
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-
-    c1.metric(
-        "Accuracy",
-        f"{accuracy:.3f}",
-    )
-
-    c2.metric(
-        "Precision",
-        f"{precision:.3f}",
-    )
-
-    c3.metric(
-        "Recall",
-        f"{recall:.3f}",
-    )
-
-    c4.metric(
-        "F1 Score",
-        f"{f1:.3f}",
-    )
-
-    c5.metric(
-        "ROC-AUC",
-        f"{roc_auc:.3f}",
-    )
-
-    # --------------------------------------------------------
-    # CONFUSION MATRIX
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🔢 Confusion Matrix"
-    )
-
-    cm = confusion_matrix(
-        y,
-        predictions,
-    )
-
-    cm_df = pd.DataFrame(
-        cm,
-        index=[
-            "Actual: Stayed",
-            "Actual: Churned",
-        ],
-        columns=[
-            "Predicted: Stayed",
-            "Predicted: Churned",
-        ],
-    )
-
-    st.dataframe(
-        cm_df,
-        use_container_width=True,
-    )
-
-    # --------------------------------------------------------
-    # CLASSIFICATION REPORT
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📋 Classification Report"
-    )
-
-    report = classification_report(
-        y,
-        predictions,
-        target_names=[
-            "Stayed",
-            "Churned",
-        ],
-        output_dict=True,
-        zero_division=0,
-    )
-
-    report_df = pd.DataFrame(
-        report
-    ).transpose()
-
-    st.dataframe(
-        report_df.round(3),
-        use_container_width=True,
-    )
-
-    # --------------------------------------------------------
-    # ROC CURVE
-    # --------------------------------------------------------
-
-    st.subheader(
-        "📈 ROC Curve"
-    )
-
-    fpr, tpr, _ = roc_curve(
-        y,
-        probabilities,
-    )
-
-    roc_df = pd.DataFrame({
-        "False Positive Rate": fpr,
-        "True Positive Rate": tpr,
-    })
-
-    st.line_chart(
-        roc_df,
-        x="False Positive Rate",
-        y="True Positive Rate",
-    )
-
-    st.success(
-        f"ROC-AUC: {roc_auc:.3f}"
-    )
-
-
-# ============================================================
-# PAGE 4 — BATCH PREDICTION
-# ============================================================
-
-def batch_prediction_page() -> None:
-
-    st.header(
-        "📁 Batch Prediction"
-    )
-
-    st.write(
-        "Upload a CSV file containing "
-        "multiple customers and generate "
-        "churn predictions."
-    )
+    st.title("📈 Churn Analysis")
 
     uploaded_file = st.file_uploader(
-        "Upload Customer CSV",
+        "Upload customer CSV file",
         type=["csv"],
     )
 
     if uploaded_file is None:
-
-        st.info(
-            "Upload a CSV file to begin "
-            "batch prediction."
-        )
-
+        st.info("Upload a CSV file to begin the analysis.")
         return
 
     try:
-
-        df = pd.read_csv(
-            uploaded_file
-        )
-
-        df.columns = (
-            df.columns
-            .str.strip()
-        )
-
+        df = pd.read_csv(uploaded_file)
     except Exception as exc:
-
-        st.error(
-            f"Could not read CSV: {exc}"
-        )
-
+        st.error(f"Could not read the CSV file: {exc}")
         return
 
-    st.success(
-        f"Successfully loaded "
-        f"{len(df):,} customer records."
+    st.subheader("Dataset Preview")
+    st.dataframe(
+        df.head(20),
+        use_container_width=True,
     )
 
-    # --------------------------------------------------------
-    # CHECK COLUMNS
-    # --------------------------------------------------------
+    st.subheader("Dataset Summary")
 
-    missing = [
-        col
-        for col in config.FEATURE_COLUMNS
-        if col not in df.columns
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("Rows", len(df))
+
+    with col2:
+        st.metric("Columns", len(df.columns))
+
+    with col3:
+        st.metric("Missing Values", int(df.isna().sum().sum()))
+
+    churn_columns = [
+        column
+        for column in df.columns
+        if column.lower() in {
+            "churn",
+            "churned",
+            "exited",
+            "is_churn",
+        }
     ]
 
-    if missing:
+    if not churn_columns:
+        st.warning(
+            "No churn column was detected. Expected names include "
+            "`churn`, `churned`, `exited`, or `is_churn`."
+        )
+        return
 
-        st.error(
-            "The uploaded CSV is missing "
-            "the following required columns:"
+    churn_column = churn_columns[0]
+
+    st.subheader("Churn Distribution")
+
+    churn_counts = df[churn_column].value_counts(dropna=False)
+
+    st.bar_chart(churn_counts)
+
+    st.subheader("Churn Statistics")
+
+    total_customers = len(df)
+
+    if total_customers > 0:
+        churn_rate = (
+            df[churn_column]
+            .astype(str)
+            .str.lower()
+            .isin(["1", "true", "yes", "churn", "churned"])
+            .mean()
+        )
+
+        st.metric(
+            "Estimated Churn Rate",
+            f"{churn_rate * 100:.2f}%",
+        )
+
+    numeric_columns = df.select_dtypes(
+        include=np.number
+    ).columns.tolist()
+
+    if numeric_columns:
+        st.subheader("Numeric Feature Analysis")
+
+        selected_column = st.selectbox(
+            "Select a numeric feature",
+            numeric_columns,
+        )
+
+        st.line_chart(
+            df[selected_column].reset_index(drop=True)
+        )
+
+
+# ============================================================
+# MODEL PERFORMANCE PAGE
+# ============================================================
+
+def performance_page() -> None:
+    """Display model performance information."""
+
+    st.title("🎯 Model Performance")
+
+    try:
+        model = _local_model()
+    except Exception as exc:
+        st.error(f"Could not load model: {exc}")
+        return
+
+    metadata = getattr(model, "metadata", {}) or {}
+
+    test_metrics = metadata.get("test_metrics", {}) or {}
+
+    if not test_metrics:
+        st.warning(
+            "No saved test metrics were found in the model metadata."
+        )
+        return
+
+    st.subheader("Test Metrics")
+
+    accuracy = test_metrics.get("accuracy")
+    precision = test_metrics.get("precision")
+    recall = test_metrics.get("recall")
+    f1 = test_metrics.get("f1")
+    roc_auc = test_metrics.get("roc_auc")
+
+    metric_columns = st.columns(5)
+
+    with metric_columns[0]:
+        st.metric(
+            "Accuracy",
+            f"{accuracy:.3f}" if accuracy is not None else "N/A",
+        )
+
+    with metric_columns[1]:
+        st.metric(
+            "Precision",
+            f"{precision:.3f}" if precision is not None else "N/A",
+        )
+
+    with metric_columns[2]:
+        st.metric(
+            "Recall",
+            f"{recall:.3f}" if recall is not None else "N/A",
+        )
+
+    with metric_columns[3]:
+        st.metric(
+            "F1 Score",
+            f"{f1:.3f}" if f1 is not None else "N/A",
+        )
+
+    with metric_columns[4]:
+        st.metric(
+            "ROC-AUC",
+            f"{roc_auc:.3f}" if roc_auc is not None else "N/A",
+        )
+
+    pr_auc = test_metrics.get("pr_auc")
+
+    if pr_auc is not None:
+        st.metric(
+            "PR-AUC",
+            f"{pr_auc:.3f}",
+        )
+
+    st.subheader("Model Details")
+
+    model_columns = st.columns(2)
+
+    with model_columns[0]:
+        st.write(
+            "**Model Version:**",
+            metadata.get("model_version")
+            or getattr(model, "version", "N/A"),
         )
 
         st.write(
-            missing
+            "**Threshold:**",
+            getattr(model, "threshold", metadata.get("threshold", "N/A")),
         )
 
-        st.info(
-            "Please upload a CSV containing "
-            "the same customer feature columns "
-            "as the training dataset."
+    with model_columns[1]:
+        st.write(
+            "**Model Type:**",
+            metadata.get("model_type", type(model).__name__),
         )
 
+        st.write(
+            "**Features:**",
+            len(metadata.get("features", []))
+            if metadata.get("features")
+            else "N/A",
+        )
+
+    st.subheader("Confusion Matrix")
+
+    confusion_data = metadata.get("confusion_matrix")
+
+    if confusion_data is not None:
+        try:
+            confusion_array = np.asarray(confusion_data)
+
+            if confusion_array.shape == (2, 2):
+                confusion_df = pd.DataFrame(
+                    confusion_array,
+                    index=["Actual 0", "Actual 1"],
+                    columns=["Predicted 0", "Predicted 1"],
+                )
+
+                st.dataframe(
+                    confusion_df,
+                    use_container_width=True,
+                )
+            else:
+                st.info("Saved confusion matrix has an unexpected format.")
+
+        except Exception:
+            st.info("Could not display the saved confusion matrix.")
+    else:
+        st.info("No saved confusion matrix was found.")
+
+
+# ============================================================
+# BATCH PREDICTION PAGE
+# ============================================================
+
+def batch_prediction_page() -> None:
+    """Predict churn for multiple customers from a CSV file."""
+
+    st.title("📦 Batch Prediction")
+
+    st.write(
+        "Upload a CSV containing customer information to generate "
+        "predictions for multiple customers."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload CSV",
+        type=["csv"],
+        key="batch_upload",
+    )
+
+    if uploaded_file is None:
+        st.info("Upload a CSV file to begin.")
         return
 
-    # --------------------------------------------------------
-    # PREVIEW
-    # --------------------------------------------------------
+    try:
+        df = pd.read_csv(uploaded_file)
+    except Exception as exc:
+        st.error(f"Could not read the CSV file: {exc}")
+        return
 
-    st.subheader(
-        "👀 Customer Data Preview"
-    )
-
+    st.subheader("Uploaded Data")
     st.dataframe(
-        df.head(10),
+        df.head(20),
         use_container_width=True,
     )
 
-    # --------------------------------------------------------
-    # PREDICT
-    # --------------------------------------------------------
+    required_fields = list(INPUT_FIELDS.keys())
+
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in df.columns
+    ]
+
+    if missing_fields:
+        st.error(
+            "The following required columns are missing: "
+            + ", ".join(missing_fields)
+        )
+        return
 
     if st.button(
-        "🔮 Generate Predictions",
+        "🚀 Run Batch Prediction",
+        type="primary",
         use_container_width=True,
     ):
+        predictions = []
 
-        try:
+        progress_bar = st.progress(0)
 
-            model = _local_model()
+        for index, row in df.iterrows():
+            features = {}
 
-            X = clean_features(
-                df
+            for field_name in required_fields:
+                features[field_name] = row[field_name]
+
+            try:
+                result = _score(features)
+
+                predictions.append(
+                    {
+                        "churn_probability": result.get(
+                            "probability",
+                            np.nan,
+                        ),
+                        "churn_prediction": result.get(
+                            "churn",
+                            False,
+                        ),
+                        "risk_tier": result.get(
+                            "risk_tier",
+                            "Unknown",
+                        ),
+                    }
+                )
+
+            except Exception as exc:
+                predictions.append(
+                    {
+                        "churn_probability": np.nan,
+                        "churn_prediction": False,
+                        "risk_tier": f"Error: {exc}",
+                    }
+                )
+
+            progress_bar.progress(
+                int((index + 1) / len(df) * 100)
             )
 
-            probabilities = (
-                model.pipeline
-                .predict_proba(X)[:, 1]
-            )
+        result_df = pd.concat(
+            [
+                df.reset_index(drop=True),
+                pd.DataFrame(predictions),
+            ],
+            axis=1,
+        )
 
-            predictions = (
-                probabilities
-                >= model.threshold
-            )
+        st.success("Batch prediction completed!")
 
-            results = df.copy()
+        st.subheader("Prediction Results")
 
-            results[
-                "Churn Probability"
-            ] = (
-                probabilities * 100
-            ).round(2)
+        st.dataframe(
+            result_df,
+            use_container_width=True,
+        )
 
-            results[
-                "Predicted Churn"
-            ] = np.where(
-                predictions,
-                "Yes",
-                "No",
-            )
+        csv_buffer = io.StringIO()
+        result_df.to_csv(
+            csv_buffer,
+            index=False,
+        )
 
-            # Risk tier
-            def get_risk(
-                probability: float
-            ) -> str:
-
-                if probability >= 0.70:
-                    return "High"
-
-                if probability >= 0.40:
-                    return "Moderate"
-
-                return "Low"
-
-            results[
-                "Risk Tier"
-            ] = [
-                get_risk(p)
-                for p in probabilities
-            ]
-
-            st.success(
-                "Predictions generated successfully!"
-            )
-
-            # ------------------------------------------------
-            # SUMMARY
-            # ------------------------------------------------
-
-            st.subheader(
-                "📊 Prediction Summary"
-            )
-
-            total = len(results)
-
-            predicted_churn = int(
-                predictions.sum()
-            )
-
-            predicted_stay = (
-                total
-                - predicted_churn
-            )
-
-            c1, c2, c3 = st.columns(3)
-
-            c1.metric(
-                "Total Customers",
-                f"{total:,}",
-            )
-
-            c2.metric(
-                "Predicted Churn",
-                f"{predicted_churn:,}",
-            )
-
-            c3.metric(
-                "Predicted Stay",
-                f"{predicted_stay:,}",
-            )
-
-            # ------------------------------------------------
-            # RESULT TABLE
-            # ------------------------------------------------
-
-            st.subheader(
-                "📋 Prediction Results"
-            )
-
-            st.dataframe(
-                results,
-                use_container_width=True,
-            )
-
-            # ------------------------------------------------
-            # DOWNLOAD
-            # ------------------------------------------------
-
-            csv_buffer = io.StringIO()
-
-            results.to_csv(
-                csv_buffer,
-                index=False,
-            )
-
-            st.download_button(
-                label="⬇️ Download Predictions CSV",
-                data=csv_buffer.getvalue(),
-                file_name="churn_predictions.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-
-        except Exception as exc:
-
-            st.error(
-                f"Batch prediction failed: {exc}"
-            )
+        st.download_button(
+            label="⬇️ Download Predictions CSV",
+            data=csv_buffer.getvalue(),
+            file_name="churn_predictions.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 
 # ============================================================
-# MAIN APPLICATION
+# SIDEBAR
 # ============================================================
 
-def main() -> None:
+st.sidebar.title("Customer Churn Prediction")
 
-    # --------------------------------------------------------
-    # TITLE
-    # --------------------------------------------------------
+page = st.sidebar.radio(
+    "Select Page",
+    [
+        "Prediction",
+        "Churn Analysis",
+        "Model Performance",
+        "Batch Prediction",
+    ],
+)
 
-    st.title(
-        "📊 Customer Churn Prediction"
-    )
+st.sidebar.markdown("---")
 
-    st.caption(
-        "Machine Learning + Streamlit"
-    )
-
-    # --------------------------------------------------------
-    # SIDEBAR
-    # --------------------------------------------------------
-
-    st.sidebar.title(
-        "Navigation"
-    )
-
-    st.sidebar.write(
-        "Select Page"
-    )
-
-    page = st.sidebar.radio(
-        "Select Page",
-        [
-            "🏠 Prediction",
-            "📊 Churn Analysis",
-            "🤖 Model Performance",
-            "📁 Batch Prediction",
-        ],
-        label_visibility="collapsed",
-    )
-
-    st.sidebar.divider()
-
-    st.sidebar.caption(
-        "Customer Churn Prediction System"
-    )
-
-    st.sidebar.caption(
-        "Machine Learning + Streamlit"
-    )
-
-    # --------------------------------------------------------
-    # PAGE SELECTION
-    # --------------------------------------------------------
-
-    if page == "🏠 Prediction":
-
-        prediction_page()
-
-    elif page == "📊 Churn Analysis":
-
-        analysis_page()
-
-    elif page == "🤖 Model Performance":
-
-        performance_page()
-
-    elif page == "📁 Batch Prediction":
-
-        batch_prediction_page()
+st.sidebar.info(
+    "Use the navigation above to make individual predictions, "
+    "analyze customer churn, inspect model performance, or run "
+    "batch predictions."
+)
 
 
 # ============================================================
-# RUN
+# PAGE ROUTING
 # ============================================================
 
-if __name__ == "__main__":
-    main()
+if page == "Prediction":
+    prediction_page()
+
+elif page == "Churn Analysis":
+    churn_analysis_page()
+
+elif page == "Model Performance":
+    performance_page()
+
+elif page == "Batch Prediction":
+    batch_prediction_page()
