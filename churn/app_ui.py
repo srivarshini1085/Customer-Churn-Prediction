@@ -103,7 +103,7 @@ def _score(features: dict[str, Any]) -> dict[str, Any]:
         return model.predict_with_details(features)
 
     probability = float(
-        model.predict_proba(features)[0][1]
+    model.predict_proba(features)
     )
 
     threshold = getattr(
@@ -1461,3 +1461,5 @@ def main() -> None:
     elif page == "Batch Prediction":
 
         batch_prediction_page()
+if __name__ == "__main__":
+    main()
