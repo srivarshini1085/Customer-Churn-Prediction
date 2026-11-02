@@ -371,15 +371,6 @@ decision threshold (which only sets the yes/no "predicted to churn" label).
 
 ---
 
-## 👥 Team Details
-
-| S# | Member Type | Student ID | Student Name | Program |
-| :---: | :---: | :---: | :--- | :--- |
-| **1** | **Team Lead** | 2400033287 | **GOTAM SRI VARSHINI** | B.Tech. - CSE |
-| **2** | **Member** | 2400032479 | **KANIKKANTI VIGNATHRI** | B.Tech. - CSE |
-| **3** | **Member** | 2400033362 | **SALEHA TAHIR BAIG** | B.Tech. - CSE |
-
----
 
 ## 📄 Contributing & License
 
