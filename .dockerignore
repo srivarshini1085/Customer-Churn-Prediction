@@ -18,3 +18,6 @@ docker-compose.yml
 Dockerfile
 .dockerignore
 Makefile
+
+.coverage
+.hypothesis/

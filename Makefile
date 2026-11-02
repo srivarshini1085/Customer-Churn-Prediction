@@ -7,12 +7,15 @@ else
     BIN := $(VENV)/bin
 endif
 
-.PHONY: help install train test lint format serve app score drift registry docker-build docker-up clean
+.PHONY: help install train test cov typecheck check lint format serve app score drift registry docker-build docker-up clean
 
 help:
 	@echo "install       create venv + install dev deps"
 	@echo "train         train, calibrate and register a model"
 	@echo "test          run the pytest suite"
+	@echo "cov           pytest with the 85% coverage gate"
+	@echo "typecheck     mypy --strict on churn/"
+	@echo "check         lint + format check + typecheck + cov (what CI runs)"
 	@echo "lint          ruff check"
 	@echo "format        ruff format + fix"
 	@echo "serve         run the REST API (uvicorn, reload)"
@@ -34,6 +37,15 @@ train:
 
 test:
 	$(BIN)/python -m pytest -q
+
+cov:
+	$(BIN)/python -m pytest --cov=churn --cov-report=term-missing
+
+typecheck:
+	$(BIN)/python -m mypy churn
+
+check: lint typecheck cov
+	$(BIN)/python -m ruff format --check .
 
 lint:
 	$(BIN)/python -m ruff check .
@@ -64,5 +76,5 @@ docker-up:
 	docker compose up
 
 clean:
-	rm -rf .pytest_cache .ruff_cache **/__pycache__ logs
+	rm -rf .pytest_cache .ruff_cache .mypy_cache .hypothesis .coverage htmlcov **/__pycache__ logs
 	rm -rf models/registry
