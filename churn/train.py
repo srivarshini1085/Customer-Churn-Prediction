@@ -1,7 +1,7 @@
 """Training pipeline: compare candidates, calibrate the winner, tune the
 threshold, snapshot the training distribution and register a new model version.
 
-Run with ``python -m churn train`` (or the legacy ``python src/train.py``).
+Run with ``python -m churn train``.
 Registers ``models/registry/<version>/`` with ``model.joblib`` + ``manifest.json``
 + ``model_card.md`` and promotes it to ``latest``.
 """

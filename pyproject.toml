@@ -39,6 +39,7 @@ churn = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q"
 filterwarnings = [
     "ignore:Using `httpx` with `starlette.testclient`:",
@@ -55,6 +56,5 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011", "S101"]
-"src/*" = ["E402"]
 "churn/service/routes.py" = ["B008"]  # FastAPI Depends() in defaults is the idiom
 "api.py" = ["E402"]

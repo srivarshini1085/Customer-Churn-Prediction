@@ -30,3 +30,10 @@ models/*.joblib
 Thumbs.db
 .vscode/
 .idea/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Generated scoring output
+scored_customers.csv
+scored_*.csv
