@@ -32,7 +32,7 @@ dev = ["pytest>=7.4", "ruff>=0.5"]
 churn = "churn.cli:main"
 
 [tool.setuptools]
-packages = ["churn", "churn.service"]
+packages = ["churn", "churn.service", "churn.ui"]
 
 [tool.setuptools.package-data]
 churn = ["py.typed"]
