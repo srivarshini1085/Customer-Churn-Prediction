@@ -8,7 +8,6 @@ __pycache__/
 .mypy_cache/
 tests/
 notebooks/
-src/
 logs/
 *.md
 !README.md

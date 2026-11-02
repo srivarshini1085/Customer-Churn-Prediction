@@ -79,7 +79,7 @@ Execution roadmap and completion status across project phases:
 
 - [x] **1. Collect and preprocess customer data**: Clean `TotalCharges`, drop IDs, decode the target (`churn/data.py`); engineering, imputation, scaling and encoding packaged as a `Pipeline` (`churn/features.py`).
 - [x] **2. Perform Exploratory Data Analysis (EDA)**: Distribution plots, churn correlations and demographic insights (`notebooks/customer_churn_eda.ipynb`).
-- [x] **3. Identify important factors affecting customer churn**: Key drivers surfaced globally (`models/model_card.md`) and per-prediction in the CLI / dashboard.
+- [x] **3. Identify important factors affecting customer churn**: Key drivers surfaced globally (`models/registry/<version>/model_card.md`) and per-prediction in the CLI / dashboard.
 - [x] **4. Develop and train a Machine Learning model**: Grid-searched Logistic Regression, Random Forest and HistGradientBoosting on stratified splits (`churn/model.py`, `churn/train.py`).
 - [x] **5. Evaluate the model using suitable performance metrics**: 5-fold CV ROC-AUC / PR-AUC / F1 / recall, held-out test report, **probability calibration** (Brier + reliability), tuned decision threshold.
 - [x] **6. Develop an interactive Streamlit dashboard**: all 19 attributes, explainable result, local-model or remote-API mode.
@@ -225,8 +225,7 @@ Customer-Churn-Prediction/
 ├── models/registry/<version>/   # generated: model.joblib + manifest.json + model_card.md
 ├── notebooks/customer_churn_eda.ipynb
 ├── tests/                       # 65 pytest cases
-├── .github/workflows/ci.yml
-└── src/{train,predict,preprocess}.py   # thin backwards-compatible shims
+└── .github/workflows/ci.yml
 ```
 
 ---
@@ -270,6 +269,9 @@ package needs no installation (`pip install -e .` also works and adds a `churn`
 console script). Full reference: **[PROJECT_GUIDE.md §9](PROJECT_GUIDE.md)**.
 
 ### 1. Train, calibrate and register a model
+> **Fresh clone? Run this first.** The trained `model.joblib` is git-ignored, so the
+> API, CLI and dashboard have no model to load until you train one.
+
 ```bash
 python -m churn train                                       # ~35 s
 python -m churn train --threshold-objective recall_at_precision
@@ -284,7 +286,7 @@ promoting it to `latest`.
 random_forest               0.8464    0.6608  0.6299   0.7371     0.5501
 logistic_regression         0.8463    0.6642  0.6281   0.7980     0.5181  <-- selected
 hist_gradient_boosting      0.8450    0.6619  0.6338   0.7773     0.5352
-Registered '20260905T004924Z'  model=logistic_regression  test ROC-AUC=0.8417  recall=0.717 @ threshold 0.35  Brier=0.1378
+Registered '20260905T010415Z'  model=logistic_regression  test ROC-AUC=0.8417  recall=0.818 @ threshold 0.24  Brier=0.1378
 ```
 
 ### 2. Real-time REST API
@@ -339,8 +341,6 @@ docker compose up                                     # API :8000 + dashboard :8
 pytest          # 65 tests
 ruff check .
 ```
-
-Legacy shims still work: `python src/train.py`, `python src/predict.py`, `python src/preprocess.py`.
 
 ---
 
