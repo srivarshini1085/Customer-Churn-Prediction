@@ -64,7 +64,7 @@ jobs:
         run: python -m churn train
       - name: Upload model card
         if: always() && matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: model-card
           path: models/registry/*/model_card.md
@@ -88,7 +88,7 @@ jobs:
       - name: Pytest with coverage
         run: pytest --cov=churn --cov-report=term-missing --cov-report=xml
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-xml
           path: coverage.xml
