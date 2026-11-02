@@ -35,7 +35,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command")
 
-    train_p = sub.add_parser("train", parents=[common], help="train, calibrate and register a model")
+    train_p = sub.add_parser(
+        "train", parents=[common], help="train, calibrate and register a model"
+    )
     train_p.add_argument(
         "--threshold-objective",
         choices=["f1", "recall_at_precision"],
@@ -48,7 +50,10 @@ def _build_parser() -> argparse.ArgumentParser:
     predict_p.add_argument("--json", action="store_true", help="print the raw result as JSON")
     predict_p.add_argument("--model-version", default=None, help="pin a registry version")
     for field in INPUT_FIELDS:
-        kwargs: dict[str, Any] = {"dest": field.name, "help": f"{field.label} (default: {field.default})"}
+        kwargs: dict[str, Any] = {
+            "dest": field.name,
+            "help": f"{field.label} (default: {field.default})",
+        }
         if field.choices:
             kwargs["choices"] = list(field.choices)
         predict_p.add_argument(_arg_name(field.name), **kwargs)
@@ -58,7 +63,9 @@ def _build_parser() -> argparse.ArgumentParser:
     score_p.add_argument("--output", required=True, help="output CSV path")
     score_p.add_argument("--model-version", default=None, help="pin a registry version")
 
-    drift_p = sub.add_parser("drift", parents=[common], help="PSI drift report vs. the training data")
+    drift_p = sub.add_parser(
+        "drift", parents=[common], help="PSI drift report vs. the training data"
+    )
     drift_p.add_argument("--current", required=True, help="CSV to compare against training")
     drift_p.add_argument("--model-version", default=None, help="pin a registry version")
 
@@ -176,7 +183,14 @@ def _run_drift(args: argparse.Namespace) -> int:
         flag = "DRIFT" if row["drifted"] else "ok"
         print(f"{feature:<22}{row['psi']:>10.4f}   {flag}")
     drifted = [f for f, r in report.items() if r["drifted"]]
-    print("\n" + (f"{len(drifted)} feature(s) drifted: {', '.join(drifted)}" if drifted else "No drift detected."))
+    print(
+        "\n"
+        + (
+            f"{len(drifted)} feature(s) drifted: {', '.join(drifted)}"
+            if drifted
+            else "No drift detected."
+        )
+    )
     return 1 if drifted else 0
 
 

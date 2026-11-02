@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -77,16 +78,17 @@ def clean(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     return x, y
 
 
-def split(
-    x: pd.DataFrame, y: pd.Series
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+def split(x: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """Stratified train/test split using the configured seed and size."""
-    return train_test_split(
-        x,
-        y,
-        test_size=config.TEST_SIZE,
-        random_state=config.RANDOM_STATE,
-        stratify=y,
+    return cast(
+        tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series],
+        train_test_split(
+            x,
+            y,
+            test_size=config.TEST_SIZE,
+            random_state=config.RANDOM_STATE,
+            stratify=y,
+        ),
     )
 
 

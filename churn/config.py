@@ -138,7 +138,6 @@ RISK_ACTIONS: dict[str, str] = {
         "payment incentive or a 1-year contract discount."
     ),
     "Low": (
-        "Healthy account: routine communication, cross-sell / up-sell and regular "
-        "loyalty rewards."
+        "Healthy account: routine communication, cross-sell / up-sell and regular loyalty rewards."
     ),
 }

@@ -6,7 +6,7 @@ import logging
 import time
 import uuid
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -20,12 +20,12 @@ _HEADER = "x-request-id"
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Assign every request an id, expose it on the response, log the round-trip."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get(_HEADER) or uuid.uuid4().hex
         token = request_id_var.set(request_id)
         start = time.perf_counter()
         try:
-            response = await call_next(request)
+            response: Response = await call_next(request)
         except Exception:
             logger.exception(
                 "unhandled error", extra={"path": request.url.path, "method": request.method}

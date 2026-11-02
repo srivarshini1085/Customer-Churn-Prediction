@@ -13,9 +13,7 @@ from contextvars import ContextVar
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
-_RESERVED = set(
-    logging.makeLogRecord({}).__dict__
-) | {"message", "asctime", "taskName"}
+_RESERVED = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime", "taskName"}
 
 
 class JsonFormatter(logging.Formatter):
@@ -50,7 +48,5 @@ def configure_logging(level: int = logging.INFO, *, json_output: bool = False) -
     if json_output:
         handler.setFormatter(JsonFormatter())
     else:
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root.addHandler(handler)

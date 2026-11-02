@@ -45,8 +45,7 @@ def _predict_one(model: ChurnModel, payload: CustomerFeatures, endpoint: str) ->
         model_version=result["model_version"],
         warnings=result["warnings"],
         top_factors=[
-            Factor(feature=name, contribution=value)
-            for name, value in model.top_factors(features)
+            Factor(feature=name, contribution=value) for name, value in model.top_factors(features)
         ],
         request_id=request_id_var.get() or "",
         latency_ms=round(latency_ms, 3),
@@ -95,9 +94,7 @@ def predict(
 
 
 @router.post("/predict/batch", response_model=BatchResponse, tags=["scoring"])
-def predict_batch(
-    payload: BatchRequest, model: ChurnModel = Depends(get_model)
-) -> BatchResponse:
+def predict_batch(payload: BatchRequest, model: ChurnModel = Depends(get_model)) -> BatchResponse:
     limit = config.settings.api_batch_limit
     if len(payload.customers) > limit:
         raise HTTPException(
@@ -105,8 +102,7 @@ def predict_batch(
             detail=f"batch of {len(payload.customers)} exceeds the limit of {limit}",
         )
     predictions = [
-        _predict_one(model, customer, endpoint="predict_batch")
-        for customer in payload.customers
+        _predict_one(model, customer, endpoint="predict_batch") for customer in payload.customers
     ]
     return BatchResponse(
         model_version=model.version, count=len(predictions), predictions=predictions

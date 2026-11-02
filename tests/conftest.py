@@ -68,8 +68,14 @@ def registered_model(fitted_model):
     registry = ModelRegistry()
     version = registry.save(
         fitted_model,
-        {**fitted_model.metadata, "test_metrics": {"roc_auc": 0.84, "brier": 0.13,
-                                                   "tuned": {"recall": 0.7, "precision": 0.5}}},
+        {
+            **fitted_model.metadata,
+            "test_metrics": {
+                "roc_auc": 0.84,
+                "brier": 0.13,
+                "tuned": {"recall": 0.7, "precision": 0.5},
+            },
+        },
         "# test model card\n",
     )
     fitted_model.metadata["version"] = version
@@ -78,20 +84,45 @@ def registered_model(fitted_model):
 
 
 HIGH_RISK = {
-    "gender": "Female", "SeniorCitizen": 1, "Partner": "No", "Dependents": "No",
-    "tenure": 1, "PhoneService": "Yes", "MultipleLines": "No",
-    "InternetService": "Fiber optic", "OnlineSecurity": "No", "OnlineBackup": "No",
-    "DeviceProtection": "No", "TechSupport": "No", "StreamingTV": "No",
-    "StreamingMovies": "No", "Contract": "Month-to-month", "PaperlessBilling": "Yes",
-    "PaymentMethod": "Electronic check", "MonthlyCharges": 95.0, "TotalCharges": 95.0,
+    "gender": "Female",
+    "SeniorCitizen": 1,
+    "Partner": "No",
+    "Dependents": "No",
+    "tenure": 1,
+    "PhoneService": "Yes",
+    "MultipleLines": "No",
+    "InternetService": "Fiber optic",
+    "OnlineSecurity": "No",
+    "OnlineBackup": "No",
+    "DeviceProtection": "No",
+    "TechSupport": "No",
+    "StreamingTV": "No",
+    "StreamingMovies": "No",
+    "Contract": "Month-to-month",
+    "PaperlessBilling": "Yes",
+    "PaymentMethod": "Electronic check",
+    "MonthlyCharges": 95.0,
+    "TotalCharges": 95.0,
 }
 
 LOW_RISK = {
-    "gender": "Male", "SeniorCitizen": 0, "Partner": "Yes", "Dependents": "Yes",
-    "tenure": 68, "PhoneService": "Yes", "MultipleLines": "Yes",
-    "InternetService": "DSL", "OnlineSecurity": "Yes", "OnlineBackup": "Yes",
-    "DeviceProtection": "Yes", "TechSupport": "Yes", "StreamingTV": "Yes",
-    "StreamingMovies": "Yes", "Contract": "Two year", "PaperlessBilling": "No",
-    "PaymentMethod": "Bank transfer (automatic)", "MonthlyCharges": 65.0,
+    "gender": "Male",
+    "SeniorCitizen": 0,
+    "Partner": "Yes",
+    "Dependents": "Yes",
+    "tenure": 68,
+    "PhoneService": "Yes",
+    "MultipleLines": "Yes",
+    "InternetService": "DSL",
+    "OnlineSecurity": "Yes",
+    "OnlineBackup": "Yes",
+    "DeviceProtection": "Yes",
+    "TechSupport": "Yes",
+    "StreamingTV": "Yes",
+    "StreamingMovies": "Yes",
+    "Contract": "Two year",
+    "PaperlessBilling": "No",
+    "PaymentMethod": "Bank transfer (automatic)",
+    "MonthlyCharges": 65.0,
     "TotalCharges": 4400.0,
 }

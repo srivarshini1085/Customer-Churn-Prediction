@@ -69,7 +69,7 @@ class ChurnModel:
 
     @property
     def version(self) -> str:
-        return self.metadata.get("version", "unversioned")
+        return str(self.metadata.get("version", "unversioned"))
 
     @property
     def is_linear(self) -> bool:
@@ -108,18 +108,14 @@ class ChurnModel:
             "warnings": self.warnings_for(features),
         }
 
-    def top_factors(
-        self, features: dict[str, Any], n: int = 6
-    ) -> list[tuple[str, float]]:
+    def top_factors(self, features: dict[str, Any], n: int = 6) -> list[tuple[str, float]]:
         """The ``n`` features that weigh most on this customer's score.
 
         Linear model → signed contribution (``value * coefficient``, + pushes
         churn up). Tree model → global importance restricted to the features
         active for this row (unsigned — see :attr:`is_linear`).
         """
-        transformed = np.asarray(
-            self.base_pipeline[:-1].transform(self._row(features))
-        )[0]
+        transformed = np.asarray(self.base_pipeline[:-1].transform(self._row(features)))[0]
 
         if self.is_linear:
             contrib = transformed * np.ravel(self.base_pipeline[-1].coef_)
@@ -166,9 +162,7 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 
-def predict_one(
-    features: dict[str, Any], version: str | None = None
-) -> dict[str, Any]:
+def predict_one(features: dict[str, Any], version: str | None = None) -> dict[str, Any]:
     """Score one customer with the current (or a pinned) model."""
     result = load_model(version).predict(features)
     log_prediction(features, result)

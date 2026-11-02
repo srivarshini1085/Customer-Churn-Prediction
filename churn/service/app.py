@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(json_output=config.settings.log_json)
     app.state.model_state = load_model_state()
     if not app.state.model_state.healthy:
@@ -40,7 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(router)
 
     @app.exception_handler(RequestValidationError)
-    async def _validation_error(request: Request, exc: RequestValidationError):
+    async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         PREDICTION_ERRORS.labels(endpoint=request.url.path.lstrip("/") or "root").inc()
         return JSONResponse(
             status_code=422,
@@ -53,7 +54,7 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(Exception)
-    async def _unhandled(request: Request, exc: Exception):
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         PREDICTION_ERRORS.labels(endpoint=request.url.path.lstrip("/") or "root").inc()
         logger.exception("unhandled error")
         return JSONResponse(
