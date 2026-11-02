@@ -37,3 +37,10 @@ Thumbs.db
 # Generated scoring output
 scored_customers.csv
 scored_*.csv
+
+# Test / type-check artefacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
