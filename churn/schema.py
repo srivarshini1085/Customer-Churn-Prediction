@@ -13,6 +13,8 @@ from typing import Any, Literal
 _SERVICE = ("No", "Yes", "No internet service")
 _YES_NO = ("No", "Yes")
 
+Group = Literal["Demographics", "Account", "Services"]
+
 
 @dataclass(frozen=True)
 class Field:
@@ -22,7 +24,7 @@ class Field:
     label: str
     kind: Literal["number", "int", "choice"]
     default: Any
-    group: Literal["Demographics", "Account", "Services"]
+    group: Group
     choices: tuple[str, ...] | None = None
     min_value: float | None = None
     max_value: float | None = None
@@ -39,33 +41,58 @@ class Field:
         return str(raw)
 
 
-def _choice(name: str, label: str, group: str, choices: tuple[str, ...], default: str) -> Field:
+def _choice(name: str, label: str, group: Group, choices: tuple[str, ...], default: str) -> Field:
     return Field(name, label, "choice", default, group, choices=choices)
 
 
 INPUT_FIELDS: list[Field] = [
     # -- Demographics --------------------------------------------------------- #
     _choice("gender", "Gender", "Demographics", ("Female", "Male"), "Female"),
-    Field("SeniorCitizen", "Senior citizen", "int", 0, "Demographics",
-          choices=("0", "1"), help="1 = yes, 0 = no"),
+    Field(
+        "SeniorCitizen",
+        "Senior citizen",
+        "int",
+        0,
+        "Demographics",
+        choices=("0", "1"),
+        help="1 = yes, 0 = no",
+    ),
     _choice("Partner", "Has partner", "Demographics", _YES_NO, "No"),
     _choice("Dependents", "Has dependents", "Demographics", _YES_NO, "No"),
     # -- Account ------------------------------------------------------------ #
     Field("tenure", "Tenure (months)", "int", 12, "Account", min_value=0, max_value=100),
-    _choice("Contract", "Contract", "Account",
-            ("Month-to-month", "One year", "Two year"), "Month-to-month"),
+    _choice(
+        "Contract",
+        "Contract",
+        "Account",
+        ("Month-to-month", "One year", "Two year"),
+        "Month-to-month",
+    ),
     _choice("PaperlessBilling", "Paperless billing", "Account", _YES_NO, "Yes"),
-    _choice("PaymentMethod", "Payment method", "Account",
-            ("Electronic check", "Mailed check", "Bank transfer (automatic)",
-             "Credit card (automatic)"), "Electronic check"),
+    _choice(
+        "PaymentMethod",
+        "Payment method",
+        "Account",
+        (
+            "Electronic check",
+            "Mailed check",
+            "Bank transfer (automatic)",
+            "Credit card (automatic)",
+        ),
+        "Electronic check",
+    ),
     Field("MonthlyCharges", "Monthly charges", "number", 70.0, "Account", min_value=0.0),
     Field("TotalCharges", "Total charges", "number", 840.0, "Account", min_value=0.0),
     # -- Services --------------------------------------------------------- #
     _choice("PhoneService", "Phone service", "Services", _YES_NO, "Yes"),
-    _choice("MultipleLines", "Multiple lines", "Services",
-            ("No", "Yes", "No phone service"), "No"),
-    _choice("InternetService", "Internet service", "Services",
-            ("DSL", "Fiber optic", "No"), "Fiber optic"),
+    _choice("MultipleLines", "Multiple lines", "Services", ("No", "Yes", "No phone service"), "No"),
+    _choice(
+        "InternetService",
+        "Internet service",
+        "Services",
+        ("DSL", "Fiber optic", "No"),
+        "Fiber optic",
+    ),
     _choice("OnlineSecurity", "Online security", "Services", _SERVICE, "No"),
     _choice("OnlineBackup", "Online backup", "Services", _SERVICE, "No"),
     _choice("DeviceProtection", "Device protection", "Services", _SERVICE, "No"),

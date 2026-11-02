@@ -34,9 +34,9 @@ def add_engineered(x: pd.DataFrame) -> pd.DataFrame:
 
     tenure = pd.to_numeric(x["tenure"], errors="coerce").fillna(0)
 
-    x["tenure_group"] = pd.cut(
-        tenure, bins=config.TENURE_BINS, labels=config.TENURE_LABELS
-    ).astype(object)
+    x["tenure_group"] = pd.cut(tenure, bins=config.TENURE_BINS, labels=config.TENURE_LABELS).astype(
+        object
+    )
     x["has_internet"] = x["InternetService"].astype(str).ne("No").astype("int64")
     x["num_addons"] = (
         x[config.ADDON_SERVICE_COLUMNS].astype(str).eq("Yes").sum(axis=1).astype("int64")
@@ -108,5 +108,5 @@ def pretty_feature_name(name: str) -> str:
     if is_categorical:
         for column in _CATEGORICAL_NAMES:
             if name.startswith(f"{column}_"):
-                return f"{column} = {name[len(column) + 1:]}"
+                return f"{column} = {name[len(column) + 1 :]}"
     return name

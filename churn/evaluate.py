@@ -54,14 +54,10 @@ class CandidateResult:
 
 
 def _cv() -> StratifiedKFold:
-    return StratifiedKFold(
-        n_splits=config.CV_FOLDS, shuffle=True, random_state=config.RANDOM_STATE
-    )
+    return StratifiedKFold(n_splits=config.CV_FOLDS, shuffle=True, random_state=config.RANDOM_STATE)
 
 
-def tune_and_score(
-    candidate: Candidate, x: pd.DataFrame, y: pd.Series
-) -> CandidateResult:
+def tune_and_score(candidate: Candidate, x: pd.DataFrame, y: pd.Series) -> CandidateResult:
     """Grid-search one candidate in a single multi-metric CV pass.
 
     ``refit`` targets :data:`config.SELECTION_METRIC`, so ``best_estimator_`` is
@@ -134,9 +130,7 @@ def optimal_threshold(
         raise ValueError(f"objective must be one of {THRESHOLD_OBJECTIVES}")
 
     y_arr = np.asarray(y)
-    proba = cross_val_predict(
-        estimator, x, y, cv=_cv(), method="predict_proba", n_jobs=-1
-    )[:, 1]
+    proba = cross_val_predict(estimator, x, y, cv=_cv(), method="predict_proba", n_jobs=-1)[:, 1]
 
     best_t, best_key = 0.5, -1.0
     for t in np.round(np.arange(0.05, 0.96, 0.01), 2):
@@ -187,9 +181,7 @@ def test_report(
             "recall": float(recall_score(y_arr, pred, zero_division=0)),
             "f1": float(f1_score(y_arr, pred, zero_division=0)),
             "accuracy": float(np.mean(pred == y_arr)),
-            "confusion_matrix": {
-                "tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)
-            },
+            "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
         }
 
     prob_true, prob_pred = calibration_curve(y_arr, proba, n_bins=10, strategy="quantile")

@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from churn import config
@@ -71,7 +72,7 @@ def _print_table(results: list[CandidateResult], winner: CandidateResult) -> Non
     print()
 
 
-def _resolve_calibration_method(base: Pipeline, x, y) -> str | None:
+def _resolve_calibration_method(base: Pipeline, x: pd.DataFrame, y: pd.Series) -> str | None:
     mode = config.settings.calibration
     if mode == "none":
         return None
@@ -84,9 +85,7 @@ def _model_card(manifest: dict[str, Any]) -> str:
     m = manifest
     tstats, test = m["threshold_stats"], m["test_metrics"]
     tuned, default = test["tuned"], test["default_0.5"]
-    top = sorted(
-        m["global_importances"].items(), key=lambda kv: abs(kv[1]), reverse=True
-    )[:15]
+    top = sorted(m["global_importances"].items(), key=lambda kv: abs(kv[1]), reverse=True)[:15]
     cal = m["calibration"] or "none"
 
     lines = [
@@ -94,8 +93,7 @@ def _model_card(manifest: dict[str, Any]) -> str:
         "",
         f"- **Created:** {m['created_at']}",
         f"- **Selected model:** `{m['model_name']}`  (`{m['best_params']}`)",
-        f"- **Selection metric:** {config.SELECTION_METRIC} "
-        f"(stratified {config.CV_FOLDS}-fold CV)",
+        f"- **Selection metric:** {config.SELECTION_METRIC} (stratified {config.CV_FOLDS}-fold CV)",
         f"- **Calibration:** {cal}",
         f"- **git:** `{m.get('git_sha')}`  **python:** {m.get('python')}  "
         f"**sklearn:** {m.get('sklearn')}",
@@ -104,8 +102,7 @@ def _model_card(manifest: dict[str, Any]) -> str:
         "",
         "## Decision threshold",
         "",
-        f"Tuned to **{m['threshold']:.2f}** "
-        f"({_OBJECTIVE_BLURB[m['threshold_objective']]}).",
+        f"Tuned to **{m['threshold']:.2f}** ({_OBJECTIVE_BLURB[m['threshold_objective']]}).",
         "",
         "| metric | CV @ tuned threshold |",
         "| --- | --- |",

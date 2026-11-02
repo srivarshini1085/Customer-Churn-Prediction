@@ -11,8 +11,14 @@ from tests.conftest import HIGH_RISK, LOW_RISK
 
 @pytest.mark.parametrize(
     ("probability", "expected"),
-    [(0.0, "Low"), (0.39, "Low"), (0.40, "Moderate"), (0.69, "Moderate"),
-     (0.70, "High"), (0.999, "High")],
+    [
+        (0.0, "Low"),
+        (0.39, "Low"),
+        (0.40, "Moderate"),
+        (0.69, "Moderate"),
+        (0.70, "High"),
+        (0.999, "High"),
+    ],
 )
 def test_risk_tier_bands(probability, expected):
     assert risk_tier(probability) == expected
@@ -25,7 +31,12 @@ def test_high_risk_scores_above_low_risk(fitted_model):
 def test_predict_returns_full_result(fitted_model):
     result = fitted_model.predict(HIGH_RISK)
     assert set(result) == {
-        "churn", "probability", "risk_tier", "threshold", "model_version", "warnings"
+        "churn",
+        "probability",
+        "risk_tier",
+        "threshold",
+        "model_version",
+        "warnings",
     }
     assert isinstance(result["churn"], bool)
     assert 0.0 <= result["probability"] <= 1.0

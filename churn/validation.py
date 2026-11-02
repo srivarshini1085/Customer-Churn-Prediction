@@ -111,19 +111,16 @@ def validate_features(
         span = max(s.max - s.min, _EPS)
         low, high = s.min - tolerance * span, s.max + tolerance * span
         if not low <= value <= high:
-            warnings.append(
-                f"{col}={value:g} is outside the training range "
-                f"[{s.min:g}, {s.max:g}]"
-            )
+            warnings.append(f"{col}={value:g} is outside the training range [{s.min:g}, {s.max:g}]")
 
-    for col, s in stats.categorical.items():
+    for col, cat_s in stats.categorical.items():
         raw = features.get(col)
         if raw is None or raw == "":
             continue
-        if str(raw) not in s.categories:
+        if str(raw) not in cat_s.categories:
             warnings.append(
                 f"{col}={raw!r} was never seen in training "
-                f"(known: {', '.join(map(str, s.categories))})"
+                f"(known: {', '.join(map(str, cat_s.categories))})"
             )
 
     return warnings
@@ -162,8 +159,8 @@ def drift_report(
         if col in df.columns:
             psi = _numeric_psi(stat, df[col])
             report[col] = {"psi": round(psi, 4), "drifted": psi >= threshold}
-    for col, stat in stats.categorical.items():
+    for col, cat_stat in stats.categorical.items():
         if col in df.columns:
-            psi = _categorical_psi(stat, df[col])
+            psi = _categorical_psi(cat_stat, df[col])
             report[col] = {"psi": round(psi, 4), "drifted": psi >= threshold}
     return report

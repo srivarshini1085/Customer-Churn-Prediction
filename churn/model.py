@@ -71,9 +71,7 @@ def candidates() -> list[Candidate]:
         ),
         Candidate(
             name="hist_gradient_boosting",
-            estimator=HistGradientBoostingClassifier(
-                class_weight="balanced", random_state=rs
-            ),
+            estimator=HistGradientBoostingClassifier(class_weight="balanced", random_state=rs),
             param_grid={
                 "learning_rate": [0.05, 0.1],
                 "max_depth": [None, 6],
@@ -91,14 +89,10 @@ _CALIBRATION_METHODS = ("sigmoid", "isotonic")
 
 
 def _cv() -> StratifiedKFold:
-    return StratifiedKFold(
-        n_splits=config.CV_FOLDS, shuffle=True, random_state=config.RANDOM_STATE
-    )
+    return StratifiedKFold(n_splits=config.CV_FOLDS, shuffle=True, random_state=config.RANDOM_STATE)
 
 
-def choose_calibration_method(
-    pipeline: Pipeline, x: pd.DataFrame, y: pd.Series
-) -> str:
+def choose_calibration_method(pipeline: Pipeline, x: pd.DataFrame, y: pd.Series) -> str:
     """Return ``"sigmoid"`` or ``"isotonic"`` — whichever gives the lower CV Brier."""
     y_arr = np.asarray(y)
     scores: dict[str, float] = {}
@@ -125,8 +119,6 @@ def calibrate(
     ``ensemble=False`` keeps a single base estimator (fit on all data) plus one
     calibrator, so serving ``predict_proba`` costs one pipeline pass, not five.
     """
-    calibrated = CalibratedClassifierCV(
-        clone(pipeline), method=method, cv=_cv(), ensemble=False
-    )
+    calibrated = CalibratedClassifierCV(clone(pipeline), method=method, cv=_cv(), ensemble=False)
     calibrated.fit(x, y)
     return calibrated

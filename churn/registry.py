@@ -24,7 +24,7 @@ import platform
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import sklearn
@@ -81,22 +81,22 @@ def provenance() -> dict[str, Any]:
 class ModelRegistry:
     """CRUD over the on-disk registry. Defaults to ``config.REGISTRY_DIR``."""
 
-    root: Path | None = None
+    root: Path | str | None = None
 
     def __post_init__(self) -> None:
-        self.root = (
-            Path(self.root)
-            if self.root is not None
-            else config.settings.registry_dir
-        )
+        self.root = Path(self.root) if self.root is not None else config.settings.registry_dir
+
+    @property
+    def root_dir(self) -> Path:
+        return Path(self.root) if self.root is not None else config.settings.registry_dir
 
     # -- internals ------------------------------------------------------- #
 
     def _dir(self, version: str) -> Path:
-        return self.root / version
+        return self.root_dir / version
 
     def _pointer(self) -> Path:
-        return self.root / _LATEST
+        return self.root_dir / _LATEST
 
     def next_version(self) -> str:
         """A fresh, collision-free version id."""
@@ -137,20 +137,18 @@ class ModelRegistry:
     def promote(self, version: str) -> None:
         """Point ``latest`` at ``version`` (rollback = promote an older one)."""
         if not self._dir(version).exists():
-            raise FileNotFoundError(f"No model version {version!r} in {self.root}")
-        self.root.mkdir(parents=True, exist_ok=True)
-        self._pointer().write_text(
-            json.dumps({"version": version}), encoding="utf-8"
-        )
+            raise FileNotFoundError(f"No model version {version!r} in {self.root_dir}")
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self._pointer().write_text(json.dumps({"version": version}), encoding="utf-8")
         logger.info("Promoted %s to latest", version)
 
     # -- read ---------------------------------------------------------- #
 
     def list_versions(self) -> list[str]:
-        if not self.root.exists():
+        if not self.root_dir.exists():
             return []
         return sorted(
-            p.name for p in self.root.iterdir() if p.is_dir() and (p / "manifest.json").exists()
+            p.name for p in self.root_dir.iterdir() if p.is_dir() and (p / "manifest.json").exists()
         )
 
     def resolve(self, version: str = "latest") -> str:
@@ -158,11 +156,11 @@ class ModelRegistry:
             return version
         pointer = self._pointer()
         if pointer.exists():
-            return json.loads(pointer.read_text())["version"]
+            return str(json.loads(pointer.read_text())["version"])
         versions = self.list_versions()
         if not versions:
             raise FileNotFoundError(
-                f"Model registry {self.root} is empty. Run `python -m churn train` first."
+                f"Model registry {self.root_dir} is empty. Run `python -m churn train` first."
             )
         return versions[-1]
 
@@ -171,15 +169,13 @@ class ModelRegistry:
         path = self._dir(version) / "manifest.json"
         if not path.exists():
             raise FileNotFoundError(f"No manifest for version {version!r}")
-        return json.loads(path.read_text(encoding="utf-8"))
+        return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
     def load(self, version: str = "latest") -> ChurnModel:
         version = self.resolve(version)
         path = self._dir(version) / "model.joblib"
         if not path.exists():
-            raise FileNotFoundError(
-                f"No model artifact for version {version!r} in {self.root}"
-            )
+            raise FileNotFoundError(f"No model artifact for version {version!r} in {self.root}")
         return ChurnModel.load(path)
 
     def list(self) -> list[dict[str, Any]]:

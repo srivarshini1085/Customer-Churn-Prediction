@@ -8,7 +8,7 @@ values are range- and enum-checked, and unknown fields are rejected (422).
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -20,7 +20,7 @@ def _annotation(field: SchemaField) -> Any:
     if field.name == "SeniorCitizen":
         return Literal[0, 1]
     if field.choices:
-        return Literal[tuple(field.choices)]  # type: ignore[valid-type]
+        return Literal[tuple(field.choices)]
     return {"number": float, "int": int}[field.kind]
 
 
@@ -34,15 +34,19 @@ def _field_info(field: SchemaField) -> Any:
     return Field(**constraints)
 
 
-CustomerFeatures: type[BaseModel] = create_model(
-    "CustomerFeatures",
-    __config__=ConfigDict(extra="forbid"),
-    **{
-        field.name: (_annotation(field) | None, _field_info(field))
-        for field in INPUT_FIELDS
-    },
-)
-CustomerFeatures.__doc__ = "One customer's attributes. All fields optional."
+if TYPE_CHECKING:
+    # mypy cannot see fields of a model built at runtime, so it sees a plain
+    # BaseModel subclass instead. The real class is generated below.
+    class CustomerFeatures(BaseModel):
+        """One customer's attributes. All fields optional."""
+
+else:
+    CustomerFeatures = create_model(
+        "CustomerFeatures",
+        __config__=ConfigDict(extra="forbid"),
+        **{field.name: (_annotation(field) | None, _field_info(field)) for field in INPUT_FIELDS},
+    )
+    CustomerFeatures.__doc__ = "One customer's attributes. All fields optional."
 
 
 class BatchRequest(BaseModel):
