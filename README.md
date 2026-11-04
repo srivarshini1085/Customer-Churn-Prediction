@@ -67,7 +67,7 @@ streamlit run app.py               # dashboard on http://localhost:8501
 | **Model Registry** | `churn/registry.py`, `models/registry/` | Versioned model storage with provenance manifests, `latest` pointer, `promote` for rollback. |
 | **Inference** | `churn/predict.py`, `churn/batch.py` | `ChurnModel` scoring (probability, tier, drivers, warnings), single + vectorised batch. |
 | **Validation & Monitoring** | `churn/validation.py` | Per-request input validation against the training envelope; Population Stability Index drift reports; JSONL prediction audit log. |
-| **REST API** | `churn/service/`, `api.py` | FastAPI real-time scoring: `/predict`, `/predict/batch`, `/health`, `/model`, `/metrics`; request ids, structured logs. |
+| **REST API** | `churn/service/`, `api.py` | FastAPI real-time scoring: `/predict`, `/predict/batch`, `/explain/whatif`, `/health`, `/model`, `/metrics`; request ids, structured logs. |
 | **Dashboard** | `app.py`, `churn/app_ui.py` (Streamlit) | Interactive form for all 19 attributes; scores locally or via the API. |
 | **Ops** | `Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `Makefile` | Containers, CI (lint + test + train smoke), task runner. |
 
@@ -300,7 +300,7 @@ curl -X POST localhost:8000/predict -H 'content-type: application/json' \
 # {"churn":true,"probability":0.70,"risk_tier":"Moderate","threshold":0.35,
 #  "top_factors":[...],"warnings":[],"model_version":"...","request_id":"...","latency_ms":10.3}
 ```
-`GET /health` · `GET /model` · `POST /predict/batch` · `GET /metrics` (Prometheus).
+`GET /health` · `GET /model` · `POST /predict/batch` · `POST /explain/whatif` (changes that would lower the risk) · `GET /metrics` (Prometheus).
 Unknown/invalid fields → `422`; out-of-training-range values → scored with a `warnings` entry.
 
 ### 3. Terminal prediction

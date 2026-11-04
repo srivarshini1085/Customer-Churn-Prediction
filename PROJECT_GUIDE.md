@@ -78,7 +78,7 @@ churn/                          # the package
 └── service/                    # the FastAPI app
     ├── app.py                  # create_app() factory + lifespan (loads model once) + error handlers
     ├── models.py               # Pydantic request/response models (generated from schema.py)
-    ├── routes.py               # /health /model /predict /predict/batch /metrics
+    ├── routes.py               # /health /model /predict /predict/batch /explain/whatif /metrics
     ├── deps.py                  # model lifecycle + get_model dependency (503 until loaded)
     ├── middleware.py           # request-id + access logging
     └── metrics.py              # Prometheus counters / histogram
@@ -215,6 +215,7 @@ Interactive docs at `http://localhost:8000/docs`.
 | `GET /model` | — | version, metrics, threshold, calibration, feature names |
 | `POST /predict` | `CustomerFeatures` (all 19 optional) | `{churn, probability, risk_tier, threshold, top_factors, warnings, model_version, request_id, latency_ms}` |
 | `POST /predict/batch` | `{customers: [CustomerFeatures, …]}` (≤ `api_batch_limit`) | `{model_version, count, predictions: [...]}` |
+| `POST /explain/whatif` | `{customer: CustomerFeatures, max_changes ≤ 3, top_k ≤ 20}` | `{model_version, baseline_probability, baseline_risk_tier, scenarios: [{changes, probability, delta, risk_tier}], request_id}` |
 | `GET /metrics` | — | Prometheus exposition (`churn_predictions_total{tier}`, `churn_prediction_latency_seconds`, …) |
 
 * Unknown field or bad enum → **422** with `{detail, request_id}`. Negative

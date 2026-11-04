@@ -207,6 +207,75 @@ def test_contract_batch_error_limit_exceeded(
     assert "exceeds the limit" in data["detail"]
 
 
+def test_contract_batch_error_unknown_field(client: TestClient) -> None:
+    response = client.post("/predict/batch", json={"customers": [{"bogus": 1}]})
+    assert response.status_code == 422
+    data = response.json()
+    assert set(data.keys()) == {"detail", "request_id"}
+    assert "bogus" in data["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# POST /explain/whatif Contracts
+# --------------------------------------------------------------------------- #
+
+
+def test_contract_whatif_success(client: TestClient) -> None:
+    payload = {
+        "customer": {"tenure": 2, "Contract": "Month-to-month", "InternetService": "Fiber optic"},
+        "max_changes": 2,
+        "top_k": 3,
+    }
+    response = client.post("/explain/whatif", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert set(data) == {
+        "model_version",
+        "baseline_probability",
+        "baseline_risk_tier",
+        "scenarios",
+        "request_id",
+    }
+    assert 0.0 <= data["baseline_probability"] <= 1.0
+    assert data["baseline_risk_tier"] in {"High", "Moderate", "Low"}
+    assert data["request_id"] == response.headers["x-request-id"]
+    assert 1 <= len(data["scenarios"]) <= 3
+    for scenario in data["scenarios"]:
+        assert set(scenario) == {"changes", "probability", "delta", "risk_tier"}
+        assert scenario["probability"] < data["baseline_probability"]
+        assert scenario["delta"] < 0
+        assert 1 <= len(scenario["changes"]) <= 2
+        for change in scenario["changes"]:
+            assert set(change) == {"feature", "from_value", "to_value"}
+            assert change["feature"] not in config.IMMUTABLE_FEATURES
+
+
+def test_contract_whatif_defaults(client: TestClient) -> None:
+    response = client.post("/explain/whatif", json={"customer": {}})
+    assert response.status_code == 200
+    assert len(response.json()["scenarios"]) <= 5
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({}, "customer"),
+        ({"customer": {}, "max_changes": 0}, "max_changes"),
+        ({"customer": {}, "max_changes": 4}, "max_changes"),
+        ({"customer": {}, "top_k": 21}, "top_k"),
+        ({"customer": {"bogus": 1}}, "bogus"),
+        ({"customer": {"tenure": -1}}, "tenure"),
+        ({"customer": {}, "extra": True}, "extra"),
+    ],
+)
+def test_contract_whatif_validation_errors(client: TestClient, payload: dict, field: str) -> None:
+    response = client.post("/explain/whatif", json=payload)
+    assert response.status_code == 422
+    data = response.json()
+    assert set(data) == {"detail", "request_id"}
+    assert field in data["detail"]
+
+
 # --------------------------------------------------------------------------- #
 # GET /metrics Contracts
 # --------------------------------------------------------------------------- #
@@ -219,27 +288,7 @@ def test_contract_prometheus_metrics(client: TestClient) -> None:
     body = response.text
     assert "churn_predictions_total" in body
     assert "churn_prediction_latency_seconds" in body
-
-
-def test_contract_batch_error_unknown_field(client: TestClient) -> None:
-    response = client.post("/predict/batch", json={"customers": [{"bogus": 1}]})
-    assert response.status_code == 422
-    data = response.json()
-    assert set(data.keys()) == {"detail", "request_id"}
-    assert "bogus" in data["detail"]
-
-
-# --------------------------------------------------------------------------- #
-# GET /metrics Contracts
-# --------------------------------------------------------------------------- #
-
-
-def test_contract_metrics_prometheus_format(client: TestClient) -> None:
-    client.post("/predict", json={"tenure": 5})
-    response = client.get("/metrics")
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/plain")
-    assert "# TYPE churn_predictions_total counter" in response.text
+    assert "# TYPE churn_predictions_total counter" in body
 
 
 # --------------------------------------------------------------------------- #
@@ -253,6 +302,7 @@ def test_contract_metrics_prometheus_format(client: TestClient) -> None:
         ("get", "/model", None),
         ("post", "/predict", {"tenure": 5}),
         ("post", "/predict/batch", {"customers": [{"tenure": 5}]}),
+        ("post", "/explain/whatif", {"customer": {"tenure": 5}}),
     ],
 )
 def test_contract_503_when_model_missing(method: str, path: str, body: object) -> None:

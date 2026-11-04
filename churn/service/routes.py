@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import time
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi import status as http_status
 
 from churn import config
+from churn.counterfactual import what_if
 from churn.logging_ import request_id_var
 from churn.predict import ChurnModel, log_prediction
 from churn.service import metrics
@@ -20,6 +22,8 @@ from churn.service.models import (
     HealthResponse,
     ModelInfoResponse,
     PredictionResponse,
+    WhatIfRequest,
+    WhatIfResponse,
 )
 
 router = APIRouter()
@@ -106,6 +110,30 @@ def predict_batch(payload: BatchRequest, model: ChurnModel = Depends(get_model))
     ]
     return BatchResponse(
         model_version=model.version, count=len(predictions), predictions=predictions
+    )
+
+
+@router.post("/explain/whatif", response_model=WhatIfResponse, tags=["explain"])
+def explain_whatif(
+    payload: WhatIfRequest, model: ChurnModel = Depends(get_model)
+) -> WhatIfResponse:
+    """Realistic changes (contract, payment, add-ons, billing) that lower churn risk most."""
+    start = time.perf_counter()
+    result = what_if(
+        model,
+        payload.customer.model_dump(exclude_none=True),
+        max_changes=payload.max_changes,
+        top_k=payload.top_k,
+    )
+    metrics.LATENCY.labels(endpoint="explain_whatif").observe(time.perf_counter() - start)
+    # asdict turns the nested dataclasses into plain dicts; pydantic then
+    # validates them (including the risk-tier literals) against the schema.
+    return WhatIfResponse.model_validate(
+        {
+            **asdict(result),
+            "model_version": model.version,
+            "request_id": request_id_var.get() or "",
+        }
     )
 
 

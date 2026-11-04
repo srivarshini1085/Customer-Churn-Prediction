@@ -119,6 +119,35 @@ TENURE_BINS: list[float] = [-0.1, 12, 24, 48, 1e9]
 TENURE_LABELS: list[str] = ["0-12m", "12-24m", "24-48m", "48m+"]
 
 # --------------------------------------------------------------------------- #
+# What-if (counterfactual) search — see churn.counterfactual
+# --------------------------------------------------------------------------- #
+
+#: Attributes a retention team cannot (or must not) change. The search never
+#: touches these, even if changing them would lower the predicted risk.
+IMMUTABLE_FEATURES: list[str] = [
+    "gender",
+    "SeniorCitizen",
+    "Partner",
+    "Dependents",
+    "tenure",
+    "TotalCharges",
+]
+
+#: Changes a retention offer could realistically make, as feature -> values the
+#: customer could be moved to. Further rules (e.g. contracts only get longer,
+#: add-ons need internet) are applied in churn.counterfactual.
+ACTIONABLE_CHANGES: dict[str, tuple[str, ...]] = {
+    "Contract": ("One year", "Two year"),
+    "PaymentMethod": ("Bank transfer (automatic)", "Credit card (automatic)"),
+    "OnlineSecurity": ("Yes",),
+    "TechSupport": ("Yes",),
+    "PaperlessBilling": ("Yes", "No"),
+}
+
+#: Contract lengths in order; a what-if may only move a customer to a longer one.
+CONTRACT_ORDER: tuple[str, ...] = ("Month-to-month", "One year", "Two year")
+
+# --------------------------------------------------------------------------- #
 # Business risk bands (fixed) — independent of the tuned decision threshold
 # --------------------------------------------------------------------------- #
 

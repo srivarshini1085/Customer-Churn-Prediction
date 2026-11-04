@@ -97,3 +97,31 @@ class ModelInfoResponse(BaseModel):
 class ErrorResponse(BaseModel):
     detail: str
     request_id: str | None = None
+
+
+class WhatIfRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    customer: CustomerFeatures
+    max_changes: int = Field(default=2, ge=1, le=3, description="Most edits combined")
+    top_k: int = Field(default=5, ge=1, le=20, description="Scenarios to return")
+
+
+class ChangeOut(BaseModel):
+    feature: str
+    from_value: str
+    to_value: str
+
+
+class ScenarioOut(BaseModel):
+    changes: list[ChangeOut]
+    probability: float
+    delta: float
+    risk_tier: Literal["High", "Moderate", "Low"]
+
+
+class WhatIfResponse(BaseModel):
+    model_version: str
+    baseline_probability: float
+    baseline_risk_tier: Literal["High", "Moderate", "Low"]
+    scenarios: list[ScenarioOut]
+    request_id: str
