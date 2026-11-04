@@ -5,8 +5,8 @@ A model bundles two fitted pipelines:
 * ``pipeline``       – **calibrated** (``CalibratedClassifierCV``); its
   ``predict_proba`` output is what drives the label and the risk tier.
 * ``base_pipeline``  – the **uncalibrated** winning estimator, refit on all of
-  the training data, kept only so per-prediction explanations can read its
-  coefficients / feature importances.
+  the training data, kept only for per-prediction explanations: signed
+  coefficient contributions for a linear model, SHAP values for a tree model.
 
 Plus the tuned ``threshold``, the transformed ``feature_names``, a
 :class:`~churn.validation.TrainingStats` snapshot (for input validation), and a
@@ -45,6 +45,14 @@ class ChurnModel:
     feature_names: list[str]
     training_stats: TrainingStats | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Lazily built SHAP explainer (tree models only). Never pickled: it is cheap
+    # to rebuild and would tie saved artifacts to the installed shap version.
+    _explainer: Any = field(default=None, init=False, repr=False, compare=False)
+
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        state["_explainer"] = None
+        return state
 
     # -- persistence --------------------------------------------------- #
 
@@ -78,18 +86,28 @@ class ChurnModel:
 
     # -- scoring --------------------------------------------------------- #
 
+    def _frame(self, rows: list[dict[str, Any]]) -> pd.DataFrame:
+        """One row per customer; omitted fields fall back to their schema default."""
+        records = []
+        for features in rows:
+            unknown = set(features) - set(config.FEATURE_COLUMNS)
+            if unknown:
+                raise ValueError(f"Unknown feature(s): {sorted(unknown)}")
+            row = _schema_defaults()
+            row.update({k: v for k, v in features.items() if v is not None})
+            records.append({col: row[col] for col in config.FEATURE_COLUMNS})
+        return pd.DataFrame(records, columns=config.FEATURE_COLUMNS)
+
     def _row(self, features: dict[str, Any]) -> pd.DataFrame:
-        """1-row frame; omitted fields fall back to their schema default."""
-        unknown = set(features) - set(config.FEATURE_COLUMNS)
-        if unknown:
-            raise ValueError(f"Unknown feature(s): {sorted(unknown)}")
-        row = _schema_defaults()
-        row.update({k: v for k, v in features.items() if v is not None})
-        return pd.DataFrame([{col: row[col] for col in config.FEATURE_COLUMNS}])
+        return self._frame([features])
 
     def predict_proba(self, features: dict[str, Any]) -> float:
         """Calibrated probability that the customer churns."""
         return float(self.pipeline.predict_proba(self._row(features))[0, 1])
+
+    def predict_proba_many(self, rows: list[dict[str, Any]]) -> np.ndarray:
+        """Calibrated churn probabilities for many customers in one pipeline pass."""
+        return np.asarray(self.pipeline.predict_proba(self._frame(rows))[:, 1], dtype=float)
 
     def warnings_for(self, features: dict[str, Any]) -> list[str]:
         if self.training_stats is None:
@@ -111,18 +129,27 @@ class ChurnModel:
     def top_factors(self, features: dict[str, Any], n: int = 6) -> list[tuple[str, float]]:
         """The ``n`` features that weigh most on this customer's score.
 
-        Linear model → signed contribution (``value * coefficient``, + pushes
-        churn up). Tree model → global importance restricted to the features
-        active for this row (unsigned — see :attr:`is_linear`).
+        Both model families return *signed* contributions (positive pushes churn
+        up), sorted by magnitude, in the base model's own output units (log-odds
+        for logistic regression and gradient boosting, probability for a random
+        forest):
+
+        * Linear model → ``scaled value * coefficient`` (exact for a logistic
+          regression, and free to compute).
+        * Tree model → SHAP values from :class:`shap.TreeExplainer`, which
+          split the prediction fairly across features, including interactions.
+
+        Explanations describe the uncalibrated ``base_pipeline``. Calibration is a
+        monotonic re-mapping, so the ranking and direction of factors still hold.
         """
-        transformed = np.asarray(self.base_pipeline[:-1].transform(self._row(features)))[0]
+        transformed = np.asarray(
+            self.base_pipeline[:-1].transform(self._row(features)), dtype=float
+        )[0]
 
         if self.is_linear:
             contrib = transformed * np.ravel(self.base_pipeline[-1].coef_)
         else:
-            importances = self.metadata.get("global_importances") or {}
-            imp = np.array([importances.get(f, 0.0) for f in self.feature_names])
-            contrib = np.where(np.abs(transformed) > 1e-9, imp, 0.0)
+            contrib = self._shap_contributions(transformed)
 
         order = np.argsort(np.abs(contrib))[::-1][:n]
         return [
@@ -130,6 +157,35 @@ class ChurnModel:
             for i in order
             if abs(contrib[i]) > 1e-9
         ]
+
+    @property
+    def explanation_method(self) -> str:
+        """How :meth:`top_factors` is computed: ``"coefficients"`` or ``"shap"``."""
+        return "coefficients" if self.is_linear else "shap"
+
+    def _shap_contributions(self, transformed: np.ndarray) -> np.ndarray:
+        """SHAP values for the churn class for one already-transformed row."""
+        if getattr(self, "_explainer", None) is None:
+            import shap  # imported lazily: slow to import and only needed for trees
+
+            self._explainer = shap.TreeExplainer(self.base_pipeline[-1])
+        values = self._explainer.shap_values(transformed.reshape(1, -1))
+        return churn_class_shap(values)
+
+
+def churn_class_shap(values: Any) -> np.ndarray:
+    """Normalise ``TreeExplainer.shap_values`` output to one 1-D row for class 1.
+
+    Depending on the estimator and the shap version, the result is a list with
+    one array per class, an array of shape ``(rows, features, classes)``, or a
+    single ``(rows, features)`` array that already refers to the positive class.
+    """
+    if isinstance(values, list):
+        values = values[-1]
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 3:
+        array = array[..., -1]
+    return np.asarray(array[0], dtype=float)
 
 
 def risk_tier(probability: float) -> str:
