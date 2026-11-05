@@ -16,7 +16,9 @@ dependencies = [
     "joblib>=1.3.0",
     # shap 0.50+ needs Python 3.11+, so 3.10 resolves to 0.49.x
     "shap>=0.46,<0.55",
-    "streamlit>=1.30.0",
+    # lifelines 0.30.1+ needs Python 3.11+, so 3.10 resolves to 0.30.0
+    "lifelines>=0.30,<0.31",
+    "streamlit>=1.36.0",  # bar_chart(horizontal=), chart x_label/y_label
     "matplotlib>=3.7.0",
     "seaborn>=0.12.0",
     "fastapi>=0.110",
@@ -68,6 +70,8 @@ module = [
     "streamlit.*",
     "prometheus_client.*",
     "shap.*",
+    "lifelines.*",
+    "altair.*",
 ]
 ignore_missing_imports = true
 

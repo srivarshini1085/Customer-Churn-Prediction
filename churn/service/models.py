@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 
 from churn.schema import INPUT_FIELDS
 from churn.schema import Field as SchemaField
@@ -125,3 +125,47 @@ class WhatIfResponse(BaseModel):
     baseline_risk_tier: Literal["High", "Moderate", "Low"]
     scenarios: list[ScenarioOut]
     request_id: str
+
+
+class RetentionPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    customers: list[CustomerFeatures] = Field(..., min_length=1)
+    customer_ids: list[str] | None = Field(
+        default=None, description="Optional ids, one per customer (default: row number)"
+    )
+    budget: float = Field(..., ge=0, description="Total amount that may be spent")
+    strategy: Literal["optimized", "greedy", "top_risk"] = "optimized"
+
+    @model_validator(mode="after")
+    def _ids_match_customers(self) -> RetentionPlanRequest:
+        if self.customer_ids is not None and len(self.customer_ids) != len(self.customers):
+            raise ValueError("customer_ids must have one id per customer")
+        return self
+
+
+class RetentionAction(BaseModel):
+    customer: str
+    churn_probability: float
+    customer_value: float
+    offer: str
+    offer_label: str
+    cost: float
+    expected_saving: float
+
+
+class StrategySummary(BaseModel):
+    strategy: str
+    budget: float
+    spent: float
+    expected_saving: float
+    roi: float
+    targeted: int
+    share_of_optimum: float
+
+
+class RetentionPlanResponse(BaseModel):
+    model_version: str
+    plan: StrategySummary
+    comparison: list[StrategySummary]
+    actions: list[RetentionAction]
+    assumptions: dict[str, Any]

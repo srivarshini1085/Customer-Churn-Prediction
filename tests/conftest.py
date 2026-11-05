@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+from hypothesis import settings
 from sklearn.linear_model import LogisticRegression
 
 from churn import config
@@ -11,6 +12,12 @@ from churn.data import clean, load_raw, split
 from churn.features import build_feature_pipeline
 from churn.predict import ChurnModel, clear_cache
 from churn.validation import TrainingStats
+
+# Property tests check correctness, not speed. Hypothesis's default 200 ms
+# per-example deadline made them fail at random under coverage tracing on a busy
+# machine (a slow pandas call, then a "flaky" replay), so the deadline is off.
+settings.register_profile("churn", deadline=None)
+settings.load_profile("churn")
 
 
 @pytest.fixture(scope="session", autouse=True)

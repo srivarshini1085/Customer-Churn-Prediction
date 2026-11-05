@@ -164,3 +164,37 @@ def drift_report(
             psi = _categorical_psi(cat_stat, df[col])
             report[col] = {"psi": round(psi, 4), "drifted": psi >= threshold}
     return report
+
+
+def drift_status(psi: float) -> str:
+    """Traffic light for one feature: green < PSI_MINOR <= amber < PSI_MAJOR <= red."""
+    if psi >= PSI_MAJOR:
+        return "red"
+    if psi >= PSI_MINOR:
+        return "amber"
+    return "green"
+
+
+def drift_summary(report: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Status per feature, counts per status, and whether retraining is recommended.
+
+    Retraining is recommended when any feature is red (a major shift) or when at
+    least ``config.DRIFT_AMBER_RETRAIN_COUNT`` features are amber (several moderate
+    shifts that together may change what the model sees).
+    """
+    statuses = {feature: drift_status(row["psi"]) for feature, row in report.items()}
+    counts = {s: sum(1 for v in statuses.values() if v == s) for s in ("green", "amber", "red")}
+    red = sorted(f for f, s in statuses.items() if s == "red")
+    amber = sorted(f for f, s in statuses.items() if s == "amber")
+    if red:
+        reason = f"major drift (PSI >= {PSI_MAJOR}) in: {', '.join(red)}"
+    elif len(amber) >= config.DRIFT_AMBER_RETRAIN_COUNT:
+        reason = f"{len(amber)} features show moderate drift: {', '.join(amber)}"
+    else:
+        reason = ""
+    return {
+        "statuses": statuses,
+        "counts": counts,
+        "retrain_recommended": bool(reason),
+        "reason": reason or "no feature shows major drift",
+    }

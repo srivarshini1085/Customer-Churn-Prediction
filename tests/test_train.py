@@ -82,3 +82,17 @@ def test_train_end_to_end_fast(monkeypatch, sample_xy: tuple[pd.DataFrame, pd.Se
     assert trained_model is not None
     assert trained_model.threshold > 0.0
     assert trained_model.version is not None
+
+    # Every registered version also carries its time-to-churn model and results.
+    from churn.registry import ModelRegistry
+
+    survival = ModelRegistry().load_survival(trained_model.version)
+    assert 0.5 <= survival.metrics["concordance_test"] <= 1.0
+    assert "concordance_test" in trained_model.metadata["survival"]
+    card = (ModelRegistry().root_dir / trained_model.version / "model_card.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## Time to churn (survival analysis)" in card
+    assert "## Fairness" in card
+    fairness = trained_model.metadata["fairness"]
+    assert set(fairness["attributes"]) == {"gender", "SeniorCitizen", "Partner"}

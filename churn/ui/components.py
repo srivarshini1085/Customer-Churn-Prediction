@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 from churn import config
@@ -87,60 +89,48 @@ def score(features: dict[str, Any]) -> dict[str, Any]:
 
 
 def show_result(result: dict[str, Any]) -> None:
-    """Display structured prediction results including metrics, risk tier, warnings, and factors."""
+    """Prediction summary: KPI cards, risk banner with next action, drivers, model info."""
     probability = float(result.get("probability", 0.0))
     churn = bool(result.get("churn", False))
     risk_tier = str(result.get("risk_tier", "Low"))
+    threshold = result.get("threshold")
 
     st.subheader("Prediction Result")
-    col1, col2, col3 = st.columns(3)
+    kpi_row(
+        [
+            ("Churn Probability", f"{probability * 100:.1f}%", "Calibrated probability"),
+            (
+                "Prediction",
+                "Likely to Churn" if churn else "Likely to Stay",
+                f"Flagged when probability >= the tuned threshold ({fmt(threshold, 2)})",
+            ),
+            ("Risk Tier", risk_tier, "High >= 70%, Moderate 40-69%, Low < 40%"),
+        ]
+    )
 
-    with col1:
-        st.metric("Churn Probability", f"{probability * 100:.1f}%")
-    with col2:
-        st.metric("Prediction", "Likely to Churn" if churn else "Likely to Stay")
-    with col3:
-        st.metric("Risk Tier", risk_tier)
+    action = config.RISK_ACTIONS.get(risk_tier, "")
+    banner = {"High": st.error, "Moderate": st.warning}.get(risk_tier, st.success)
+    icon = "✅" if risk_tier == "Low" else "⚠️"
+    banner(f"{icon} **{risk_tier} churn risk.** {action}")
 
-    # Risk message banner
-    if risk_tier == "High":
-        st.error("⚠️ High churn risk")
-    elif risk_tier == "Moderate":
-        st.warning("⚠️ Moderate churn risk")
-    else:
-        st.success("✅ Low churn risk")
+    for warning in result.get("warnings") or []:
+        st.warning(f"Input check: {warning}")
 
-    # Warnings section
-    warnings = result.get("warnings") or []
-    if warnings:
-        st.subheader("Warnings")
-        for warning in warnings:
-            st.warning(str(warning))
-
-    # Top churn factors / explanations
-    top_factors = result.get("top_factors") or []
-    if top_factors:
+    factors = [f for f in (result.get("top_factors") or []) if isinstance(f, dict)]
+    if factors:
         st.subheader("Top Churn Factors")
-        if isinstance(top_factors, list):
-            for factor in top_factors:
-                if isinstance(factor, dict):
-                    name = factor.get("feature", factor.get("name", "Feature"))
-                    value = factor.get("value", "")
-                    impact = factor.get("impact", "")
-                    contribution = factor.get("contribution")
-                    text = f"**{name}**"
-                    if value != "":
-                        text += f": {value}"
-                    if impact != "":
-                        text += f" — {impact}"
-                    if contribution is not None:
-                        direction = "raises" if contribution > 0 else "lowers"
-                        text += f" — {direction} risk ({contribution:+.3f})"
-                    st.write(text)
-                else:
-                    st.write(f"• {factor}")
+        table = pd.DataFrame(
+            {
+                "Factor": [f.get("feature", f.get("name", "Feature")) for f in factors],
+                "Contribution": [float(f.get("contribution", 0.0)) for f in factors],
+            }
+        )
+        st.altair_chart(_factor_chart(table), use_container_width=True)
+        st.caption(
+            "Signed contribution to this customer's score (log-odds): positive pushes "
+            "churn risk up, negative pulls it down."
+        )
 
-    # Model metadata section
     model_meta = result.get("model_meta") or {}
     if model_meta:
         with st.expander("Model Information"):
@@ -151,22 +141,42 @@ def show_result(result: dict[str, Any]) -> None:
                 or "N/A"
             )
             st.write("Model version:", version)
+            test = model_meta.get("test_metrics") or model_meta.get("metrics") or {}
+            tuned = test.get("tuned", test)
+            kpi_row(
+                [
+                    ("ROC-AUC", fmt(test.get("roc_auc")), None),
+                    ("Recall", fmt(tuned.get("recall")), None),
+                    ("Precision", fmt(tuned.get("precision")), None),
+                    ("Brier", fmt(test.get("brier")), None),
+                ]
+            )
 
-            saved_metrics = model_meta.get("test_metrics", {})
-            if saved_metrics:
-                st.write("Saved test metrics:")
-                metric_cols = st.columns(5)
-                metric_keys = ["accuracy", "precision", "recall", "f1", "roc_auc"]
-                labels = ["Accuracy", "Precision", "Recall", "F1", "ROC-AUC"]
 
-                for col, key, label in zip(metric_cols, metric_keys, labels, strict=False):
-                    with col:
-                        val = saved_metrics.get(key)
-                        st.metric(label, f"{val:.3f}" if val is not None else "N/A")
+def _factor_chart(table: pd.DataFrame) -> Any:
+    """Horizontal bars in the given (magnitude) order: red raises risk, green lowers it."""
+    import altair as alt
 
-                pr_saved = saved_metrics.get("pr_auc")
-                if pr_saved is not None:
-                    st.metric("PR-AUC", f"{pr_saved:.3f}")
+    table = table.assign(Effect=np.where(table["Contribution"] > 0, "raises risk", "lowers risk"))
+    return (
+        alt.Chart(table)
+        .mark_bar()
+        .encode(
+            x=alt.X("Contribution:Q", title="Contribution to churn risk (log-odds)"),
+            y=alt.Y(
+                "Factor:N", sort=None, title=None, axis=alt.Axis(labelLimit=260, labelOverlap=False)
+            ),
+            color=alt.Color(
+                "Effect:N",
+                scale=alt.Scale(
+                    domain=["raises risk", "lowers risk"], range=["#dc2626", "#16a34a"]
+                ),
+                legend=alt.Legend(orient="bottom", title=None),
+            ),
+            tooltip=["Factor", alt.Tooltip("Contribution:Q", format="+.3f")],
+        )
+        .properties(height=44 * len(table) + 50)
+    )
 
 
 def what_if(features: dict[str, Any], max_changes: int = 2, top_k: int = 5) -> dict[str, Any]:
@@ -228,3 +238,121 @@ def show_what_if(result: dict[str, Any]) -> None:
         "charges) are never changed. The model learned associations, not causal effects, "
         "and monthly charges are held constant, so treat these as hypotheses to test."
     )
+
+
+@st.cache_resource(show_spinner="Loading survival model...")
+def local_survival() -> Any:
+    """The time-to-churn model saved with the configured model version (or None)."""
+    from churn.registry import ModelRegistry
+
+    try:
+        return ModelRegistry().load_survival(config.settings.model_version)
+    except FileNotFoundError:
+        return None
+
+
+def show_time_to_churn(features: dict[str, Any]) -> None:
+    """Render the "likely months until churn" estimate for one customer."""
+    st.subheader("Time to churn")
+    survival = local_survival()
+    if survival is None:
+        st.info(
+            "This model version has no survival model. Run `python -m churn train` to "
+            "register a version that includes one."
+        )
+        return
+
+    estimate = survival.predict([features])[0]
+    col1, col2 = st.columns(2)
+    with col1:
+        months = estimate["months_until_churn"]
+        if months is not None:
+            st.metric("Likely months until churn", f"{months} months")
+        elif estimate["beyond_months"]:
+            st.metric("Likely months until churn", f"> {estimate['beyond_months']} months")
+        else:
+            st.metric("Likely months until churn", "Beyond observed data")
+    with col2:
+        horizon = estimate["horizon_months"]
+        if horizon > 0:
+            st.metric(
+                f"Chance of churning in the next {horizon} months",
+                f"{estimate['churn_within_horizon'] * 100:.1f}%",
+            )
+        else:
+            st.metric("Chance of churning soon", "Beyond observed data")
+    st.caption(
+        "From a Cox proportional-hazards model, given that the customer has already "
+        "stayed for their current tenure. 'Likely months' is the median: half of "
+        "similar customers would have left by then. Estimates past the longest "
+        "observed tenure are not extrapolated."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Layout helpers shared by every page
+# --------------------------------------------------------------------------- #
+
+
+def page_header(title: str, subtitle: str) -> None:
+    """Title plus a one-line explanation of what the page is for."""
+    st.title(title)
+    st.caption(subtitle)
+
+
+def kpi_row(items: list[tuple[str, str, str | None]]) -> None:
+    """A row of KPI cards: (label, value, help text or None)."""
+    for column, (label, value, help_text) in zip(st.columns(len(items)), items, strict=True):
+        column.metric(label, value, help=help_text)
+
+
+def fmt(value: Any, digits: int = 3) -> str:
+    """Format a saved metric, or "n/a" when it is missing."""
+    return f"{value:.{digits}f}" if isinstance(value, int | float) else "n/a"
+
+
+def model_or_none() -> Any:
+    """The local model, or None after showing a helpful message when there is none."""
+    try:
+        return local_model()
+    except FileNotFoundError:
+        st.warning(
+            "No trained model was found. Train one with `python -m churn train` "
+            "(about a minute), then reload this page."
+        )
+    except Exception as exc:
+        st.error(f"Could not load the model: {exc}")
+    return None
+
+
+def ensure_model() -> str | None:
+    """Version of the loadable model, training one first if auto-train is on.
+
+    For hosted demos (Streamlit Cloud, Hugging Face Spaces) the model binaries are
+    not in git, so with ``CHURN_AUTO_TRAIN=true`` the first visitor waits for one
+    training run and every later session reuses it. Returns None when there is no
+    model and auto-train is off.
+    """
+    from churn.predict import load_model
+
+    try:
+        return load_model().version
+    except FileNotFoundError:
+        pass
+    if not config.settings.auto_train:
+        return None
+    return _train_once()
+
+
+@st.cache_resource(show_spinner=False)
+def _train_once() -> str:
+    """Train and register a model; cached so it runs once per server process."""
+    from churn.predict import clear_cache, load_model
+    from churn.train import train
+
+    with st.spinner("First start: training the model. This takes a few minutes..."):
+        train()
+    clear_cache()
+    local_model.clear()
+    local_survival.clear()
+    return load_model().version

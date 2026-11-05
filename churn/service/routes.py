@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import asdict
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi import status as http_status
 
@@ -12,6 +13,8 @@ from churn import config
 from churn.counterfactual import what_if
 from churn.logging_ import request_id_var
 from churn.predict import ChurnModel, log_prediction
+from churn.retention import STRATEGIES, plan_from_scores
+from churn.schema import defaults as schema_defaults
 from churn.service import metrics
 from churn.service.deps import ModelState, get_model
 from churn.service.models import (
@@ -22,6 +25,8 @@ from churn.service.models import (
     HealthResponse,
     ModelInfoResponse,
     PredictionResponse,
+    RetentionPlanRequest,
+    RetentionPlanResponse,
     WhatIfRequest,
     WhatIfResponse,
 )
@@ -133,6 +138,42 @@ def explain_whatif(
             **asdict(result),
             "model_version": model.version,
             "request_id": request_id_var.get() or "",
+        }
+    )
+
+
+@router.post("/retention/plan", response_model=RetentionPlanResponse, tags=["retention"])
+def retention_plan(
+    payload: RetentionPlanRequest, model: ChurnModel = Depends(get_model)
+) -> RetentionPlanResponse:
+    """Choose which customers get which retention offer within ``budget``."""
+    limit = config.settings.api_batch_limit
+    if len(payload.customers) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"plan for {len(payload.customers)} customers exceeds the limit of {limit}",
+        )
+    features = [c.model_dump(exclude_none=True) for c in payload.customers]
+    probability = model.predict_proba_many(features)
+    default_charges = float(schema_defaults()["MonthlyCharges"])
+    charges = np.array([float(f.get("MonthlyCharges", default_charges)) for f in features])
+
+    plans = {
+        s: plan_from_scores(probability, charges, payload.budget, s, payload.customer_ids)
+        for s in STRATEGIES
+    }
+    chosen = plans[payload.strategy]
+    return RetentionPlanResponse.model_validate(
+        {
+            "model_version": model.version,
+            "plan": chosen.summary(),
+            "comparison": [plan.summary() for plan in plans.values()],
+            "actions": chosen.action_table().to_dict(orient="records"),
+            "assumptions": {
+                "horizon_months": config.settings.retention_horizon_months,
+                "offers": [vars(offer) for offer in config.RETENTION_OFFERS],
+                "baseline_offer": config.BASELINE_OFFER,
+            },
         }
     )
 

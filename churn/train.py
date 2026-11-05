@@ -24,10 +24,13 @@ from churn.evaluate import (
     test_report,
     tune_and_score,
 )
+from churn.fairness import fairness_report
+from churn.fairness import model_card_section as fairness_section
 from churn.features import pretty_feature_name
 from churn.model import calibrate, candidates, choose_calibration_method
 from churn.predict import ChurnModel
 from churn.registry import ModelRegistry, provenance
+from churn.survival import fit_survival, model_card_section
 from churn.validation import TrainingStats
 
 logger = logging.getLogger(__name__)
@@ -161,9 +164,14 @@ def train(threshold_objective: str = "f1") -> ChurnModel:
         scoring_pipeline, x_train, y_train, objective=threshold_objective
     )
     test_metrics = test_report(scoring_pipeline, x_test, y_test, threshold)
+    fairness = fairness_report(
+        x_test, y_test, scoring_pipeline.predict_proba(x_test)[:, 1], threshold
+    )
 
     names = list(base_pipeline.named_steps["prep"].get_feature_names_out())
     training_stats = TrainingStats.from_frame(x_train)
+
+    survival = fit_survival(x_train, y_train, x_test, y_test)
 
     registry = ModelRegistry()
     version = registry.next_version()
@@ -183,6 +191,13 @@ def train(threshold_objective: str = "f1") -> ChurnModel:
         "threshold_stats": threshold_stats,
         "training_stats": training_stats.summary(),
         "global_importances": _global_importances(base_pipeline, names),
+        "fairness": fairness,
+        "survival": {
+            **survival.metrics,
+            "hazard_ratios": survival.hazard_ratios()
+            .set_index("covariate")["hazard_ratio"]
+            .to_dict(),
+        },
     }
 
     model = ChurnModel(
@@ -194,13 +209,17 @@ def train(threshold_objective: str = "f1") -> ChurnModel:
         metadata=manifest,
     )
 
-    registry.save(model, manifest, _model_card(manifest), promote=True)
+    card = "\n".join(
+        [_model_card(manifest), fairness_section(fairness), model_card_section(survival)]
+    )
+    registry.save(model, manifest, card, promote=True, survival=survival)
 
     print(
         f"Registered '{version}'  model={best.name}  "
         f"test ROC-AUC={test_metrics['roc_auc']:.4f}  "
         f"recall={test_metrics['tuned']['recall']:.3f} @ threshold {threshold:.2f}  "
-        f"Brier={test_metrics['brier']:.4f}"
+        f"Brier={test_metrics['brier']:.4f}  "
+        f"survival C-index={survival.metrics['concordance_test']:.3f}"
     )
     return model
 

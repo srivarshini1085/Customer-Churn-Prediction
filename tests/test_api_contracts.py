@@ -277,6 +277,99 @@ def test_contract_whatif_validation_errors(client: TestClient, payload: dict, fi
 
 
 # --------------------------------------------------------------------------- #
+# POST /retention/plan Contracts
+# --------------------------------------------------------------------------- #
+
+
+def test_contract_retention_plan_success(client: TestClient) -> None:
+    payload = {
+        "customers": [
+            {"tenure": 1, "Contract": "Month-to-month", "MonthlyCharges": 95.0},
+            {"tenure": 3, "Contract": "Month-to-month", "MonthlyCharges": 80.0},
+            {"tenure": 70, "Contract": "Two year", "MonthlyCharges": 30.0},
+        ],
+        "customer_ids": ["a", "b", "c"],
+        "budget": 100,
+    }
+    response = client.post("/retention/plan", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert set(data) == {"model_version", "plan", "comparison", "actions", "assumptions"}
+
+    summary_keys = {
+        "strategy",
+        "budget",
+        "spent",
+        "expected_saving",
+        "roi",
+        "targeted",
+        "share_of_optimum",
+    }
+    assert set(data["plan"]) == summary_keys
+    assert data["plan"]["strategy"] == "optimized"
+    assert data["plan"]["spent"] <= 100
+    assert [s["strategy"] for s in data["comparison"]] == ["optimized", "greedy", "top_risk"]
+    assert len(data["actions"]) == data["plan"]["targeted"]
+    for action in data["actions"]:
+        assert set(action) == {
+            "customer",
+            "churn_probability",
+            "customer_value",
+            "offer",
+            "offer_label",
+            "cost",
+            "expected_saving",
+        }
+        assert action["customer"] in {"a", "b", "c"}
+        assert action["expected_saving"] > 0
+    assumptions = data["assumptions"]
+    assert assumptions["horizon_months"] == config.settings.retention_horizon_months
+    assert {o["name"] for o in assumptions["offers"]} == {o.name for o in config.RETENTION_OFFERS}
+
+
+def test_contract_retention_plan_baseline_strategy(client: TestClient) -> None:
+    response = client.post(
+        "/retention/plan",
+        json={"customers": [{}, {}], "budget": 1000, "strategy": "top_risk"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["plan"]["strategy"] == "top_risk"
+    assert {a["customer"] for a in data["actions"]} <= {"0", "1"}
+    assert {a["offer"] for a in data["actions"]} <= {config.BASELINE_OFFER}
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"customers": [{}]}, "budget"),
+        ({"customers": [], "budget": 10}, "customers"),
+        ({"customers": [{}], "budget": -1}, "budget"),
+        ({"customers": [{}], "budget": 10, "strategy": "magic"}, "strategy"),
+        ({"customers": [{}], "customer_ids": ["a", "b"], "budget": 10}, "customer_ids"),
+        ({"customers": [{"bogus": 1}], "budget": 10}, "bogus"),
+    ],
+)
+def test_contract_retention_plan_validation_errors(
+    client: TestClient, payload: dict, field: str
+) -> None:
+    response = client.post("/retention/plan", json=payload)
+    assert response.status_code == 422
+    data = response.json()
+    assert set(data) == {"detail", "request_id"}
+    assert field in data["detail"]
+
+
+def test_contract_retention_plan_limit_exceeded(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config.settings, "api_batch_limit", 1)
+    response = client.post("/retention/plan", json={"customers": [{}, {}], "budget": 10})
+    assert response.status_code == 413
+    assert "exceeds the limit" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
 # GET /metrics Contracts
 # --------------------------------------------------------------------------- #
 
@@ -303,6 +396,7 @@ def test_contract_prometheus_metrics(client: TestClient) -> None:
         ("post", "/predict", {"tenure": 5}),
         ("post", "/predict/batch", {"customers": [{"tenure": 5}]}),
         ("post", "/explain/whatif", {"customer": {"tenure": 5}}),
+        ("post", "/retention/plan", {"customers": [{"tenure": 5}], "budget": 100}),
     ],
 )
 def test_contract_503_when_model_missing(method: str, path: str, body: object) -> None:

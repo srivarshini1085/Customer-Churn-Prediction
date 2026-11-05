@@ -5,6 +5,7 @@ Layout::
     models/registry/
         20260905T101500Z/
             model.joblib      # the ChurnModel
+            survival.joblib   # time-to-churn model (churn.survival), when trained
             manifest.json     # version, provenance, metrics, training-stats summary
             model_card.md     # human-readable
         20260905T140322Z/
@@ -31,6 +32,7 @@ import sklearn
 
 from churn import config
 from churn.predict import ChurnModel
+from churn.survival import SurvivalModel
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +118,9 @@ class ModelRegistry:
         model_card: str,
         *,
         promote: bool = True,
+        survival: SurvivalModel | None = None,
     ) -> str:
-        """Persist a model + its manifest + card under a fresh version."""
+        """Persist a model + its manifest + card (+ survival model) under a fresh version."""
         version = manifest.get("version") or self.next_version()
         manifest = {**manifest, "version": version}
 
@@ -128,6 +131,8 @@ class ModelRegistry:
             json.dumps(manifest, indent=2, default=str), encoding="utf-8"
         )
         (target / "model_card.md").write_text(model_card, encoding="utf-8")
+        if survival is not None:
+            survival.save(target / "survival.joblib")
         logger.info("Registered model %s", version)
 
         if promote:
@@ -177,6 +182,16 @@ class ModelRegistry:
         if not path.exists():
             raise FileNotFoundError(f"No model artifact for version {version!r} in {self.root}")
         return ChurnModel.load(path)
+
+    def load_survival(self, version: str = "latest") -> SurvivalModel:
+        """The time-to-churn model saved with ``version`` (older versions have none)."""
+        version = self.resolve(version)
+        path = self._dir(version) / "survival.joblib"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Model version {version!r} has no survival model; retrain to add one."
+            )
+        return SurvivalModel.load(path)
 
     def list(self) -> list[dict[str, Any]]:
         """Summary of every registered version, newest last."""

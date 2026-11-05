@@ -1,379 +1,389 @@
-# 📊 Customer Churn Prediction System
+# 📊 Customer Churn Prediction
 
-A production-shaped churn service: a **calibrated** scikit-learn model behind a
-**versioned model registry**, served in **real time over a FastAPI REST API**,
-with **batch scoring**, **input validation + drift monitoring**, **structured
-logs + Prometheus metrics**, a Streamlit dashboard, containers and CI.
+**An end-to-end churn system that goes past "who will churn?" to "when, why, and
+what should we do about it with this budget?"** A calibrated scikit-learn model
+(chosen by cross-validation) scores telecom customers in real time through a
+FastAPI service and a Streamlit dashboard. Every prediction comes with signed
+explanations and a what-if search for realistic changes that would lower the
+risk. A survival model estimates *when* a customer is likely to leave, and a
+budget optimiser decides which customers should get which retention offer. Every
+model version is registered with its metrics, a fairness report and a model card,
+and new data is checked for drift. Typed (mypy strict), tested (203 tests, 94%
+coverage) and containerised.
 
-> 📖 **[PROJECT_GUIDE.md](PROJECT_GUIDE.md)** — full walkthrough of the logic, algorithm, setup and every run command.
+> **Live demo:** _coming soon — add the Streamlit Community Cloud URL here_ ([how to deploy](docs/DEPLOYMENT.md))
 
-```bash
-.\.venv\Scripts\Activate.ps1        # activate the venv (see Setup)
-python -m churn train               # train, calibrate, register a model
-python -m churn serve               # REST API on http://localhost:8000  (docs at /docs)
-streamlit run app.py               # dashboard on http://localhost:8501
-```
-
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
-[![Pandas](https://img.shields.io/badge/Pandas-2.0%2B-150458?style=for-the-badge&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
-
----
-
-## 📑 Table of Contents
-1. [Business Use Case](#-business-use-case)
-2. [Sample Services / Modules](#-sample-services--modules)
-3. [Tasks to be Done](#-tasks-to-be-done)
-4. [Key Features](#-key-features)
-5. [Architecture & Workflow](#-architecture--workflow)
-6. [Dataset Overview](#-dataset-overview)
-7. [Exploratory Data Analysis (EDA)](#-exploratory-data-analysis-eda)
-8. [Machine Learning Pipeline](#-machine-learning-pipeline)
-   - [Data Cleaning & Feature Engineering](#data-cleaning--feature-engineering)
-   - [Model Training & Selection](#model-training--selection)
-   - [Model Persistence](#model-persistence)
-9. [Project Structure](#-project-structure)
-10. [Installation & Setup](#-installation--setup)
-11. [How to Run](#-how-to-run)
-   - [1. Train, calibrate and register a model](#1-train-calibrate-and-register-a-model)
-   - [2. Real-time REST API](#2-real-time-rest-api)
-   - [3. Terminal prediction](#3-terminal-prediction)
-   - [4. Batch scoring & drift](#4-batch-scoring--drift)
-   - [5. Model registry](#5-model-registry)
-   - [6. Streamlit dashboard](#6-streamlit-dashboard)
-   - [7. Containers](#7-containers)
-   - [8. Tests & lint](#8-tests--lint)
-12. [Risk Assessment & Business Actions](#-risk-assessment--business-actions)
-13. [Technologies Used](#-technologies-used)
-14. [Team Details](#-team-details)
-15. [Contributing & License](#-contributing--license)
+[![Python](https://img.shields.io/badge/Python-3.10%20|%203.11%20|%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3%2B-F7931E?logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.36%2B-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 💼 Business Use Case
+## Contents
 
-> The company requires an automated **Customer Churn Prediction System** to identify customers who are likely to stop using its products or services. The system must collect and analyze customer data such as usage behavior, subscription details, purchase history, and customer interactions. It should preprocess the data, perform exploratory data analysis, and use Machine Learning techniques to predict the probability of customer churn. The system should provide meaningful insights and visualizations to help the company take proactive actions to retain customers.
-
----
-
-## 🧩 Services / Modules
-
-| Service / Module | Implementation | Description |
-| :--- | :--- | :--- |
-| **Data & Preprocessing** | `churn/data.py`, `churn/features.py` | Cleaning, feature engineering, imputation, scaling and encoding as one scikit-learn `Pipeline`. |
-| **Training & Calibration** | `churn/model.py`, `churn/evaluate.py`, `churn/train.py` | Grid-searched candidate models, CV selection by ROC-AUC, probability calibration, decision-threshold tuning, held-out evaluation with Brier score. |
-| **Model Registry** | `churn/registry.py`, `models/registry/` | Versioned model storage with provenance manifests, `latest` pointer, `promote` for rollback. |
-| **Inference** | `churn/predict.py`, `churn/batch.py` | `ChurnModel` scoring (probability, tier, drivers, warnings), single + vectorised batch. |
-| **Validation & Monitoring** | `churn/validation.py` | Per-request input validation against the training envelope; Population Stability Index drift reports; JSONL prediction audit log. |
-| **REST API** | `churn/service/`, `api.py` | FastAPI real-time scoring: `/predict`, `/predict/batch`, `/explain/whatif`, `/health`, `/model`, `/metrics`; request ids, structured logs. |
-| **Dashboard** | `app.py`, `churn/app_ui.py` (Streamlit) | Interactive form for all 19 attributes; scores locally or via the API. |
-| **Ops** | `Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `Makefile` | Containers, CI (lint + test + train smoke), task runner. |
+1. [Screenshots](#-screenshots)
+2. [Results](#-results)
+3. [Architecture](#-architecture)
+4. [Features](#-features)
+5. [Quick start](#-quick-start)
+6. [Usage](#-usage)
+7. [Key design decisions](#-key-design-decisions)
+8. [Limitations and future work](#-limitations-and-future-work)
+9. [Project structure](#-project-structure)
+10. [Dataset](#-dataset)
+11. [Further reading](#-further-reading)
 
 ---
 
-## 📋 Tasks to be Done
+## 📸 Screenshots
 
-Execution roadmap and completion status across project phases:
+_Placeholders: capture these from `streamlit run app.py` and save them under
+`docs/images/`._
 
-- [x] **1. Collect and preprocess customer data**: Clean `TotalCharges`, drop IDs, decode the target (`churn/data.py`); engineering, imputation, scaling and encoding packaged as a `Pipeline` (`churn/features.py`).
-- [x] **2. Perform Exploratory Data Analysis (EDA)**: Distribution plots, churn correlations and demographic insights (`notebooks/customer_churn_eda.ipynb`).
-- [x] **3. Identify important factors affecting customer churn**: Key drivers surfaced globally (`models/registry/<version>/model_card.md`) and per-prediction in the CLI / dashboard.
-- [x] **4. Develop and train a Machine Learning model**: Grid-searched Logistic Regression, Random Forest and HistGradientBoosting on stratified splits (`churn/model.py`, `churn/train.py`).
-- [x] **5. Evaluate the model using suitable performance metrics**: 5-fold CV ROC-AUC / PR-AUC / F1 / recall, held-out test report, **probability calibration** (Brier + reliability), tuned decision threshold.
-- [x] **6. Develop an interactive Streamlit dashboard**: all 19 attributes, explainable result, local-model or remote-API mode.
-- [x] **7. Display customer churn predictions and insights**: probability, risk tier, recommended action, per-customer drivers, input warnings.
-- [x] **8. Test the system**: 65-case pytest suite (data, features, calibration, registry, validation, batch, API) plus `ruff`; GitHub Actions CI.
-- [x] **9. Deploy the application**: **real-time REST API** (`uvicorn api:app`), **model registry with rollback**, **batch scoring**, **drift monitoring**, `Dockerfile` + `docker-compose` (API + dashboard).
-
----
-
-## 🌟 Key Features
-
-- **Real-time REST API** (`FastAPI`): `POST /predict` returns probability, tier, drivers and warnings in ~10–25 ms; `/predict/batch`, `/health`, `/model`, `/metrics`. Pydantic-validated contract generated from one schema.
-- **Model registry + versioning**: every training run is registered as `models/registry/<version>/` with a full provenance manifest (git SHA, data hash, library versions, metrics). `promote` for instant rollback; pin a version with `CHURN_MODEL_VERSION`.
-- **Calibrated probabilities**: the winner is wrapped in `CalibratedClassifierCV` (sigmoid/isotonic chosen by CV Brier) so the risk-tier bands mean something. Brier score + reliability curve in the model card.
-- **Input validation + drift monitoring**: each prediction returns `warnings` for out-of-range / unseen values; `churn drift` computes per-feature PSI vs. the training distribution; optional JSONL audit log of every prediction.
-- **Single-Pipeline Architecture**: engineering, imputation, scaling and encoding are one scikit-learn `Pipeline` — no train/serve skew, unseen categories handled.
-- **Cross-Validated Model Selection**: grid-searched Logistic Regression / Random Forest / HistGradientBoosting, 5-fold CV, ranked by ROC-AUC with a recall tie-break.
-- **Observability + containers + CI**: structured JSON logs with request ids, Prometheus metrics, `Dockerfile` + `docker-compose` (API + dashboard), GitHub Actions, `Makefile`.
-- **Tested**: 65 pytest cases (data, features, calibration, registry, validation, batch, API); `ruff`-clean.
+- [ ] `docs/images/demo.gif`: a 20-second walk-through (fill in the form → result
+  → factors → what-if → retention planner)
+- [ ] `docs/images/prediction.png`: Prediction page with KPI cards, risk banner and
+  the red/green factor chart
+- [ ] `docs/images/whatif.png`: "What would reduce this risk?" table
+- [ ] `docs/images/retention.png`: Retention Planner with budget slider and the
+  expected-saving-by-budget chart
+- [ ] `docs/images/survival.png`: Time to Churn page with Kaplan-Meier curves by
+  contract
+- [ ] `docs/images/performance.png`: Model Performance with confusion matrix,
+  calibration curve and fairness table
+- [ ] `docs/images/monitoring.png`: Monitoring page with green/amber/red PSI
+- [ ] `docs/images/api-docs.png`: FastAPI `/docs` page
 
 ---
 
-## 🏗 Architecture & Workflow
+## 📈 Results
+
+All numbers below come from the registered model version `20261105T043413Z`
+(`python -m churn train`; 5,634 training rows, 1,409 held-out test rows, random
+seed 42) and from running the CLI and API against it.
+
+### Model selection (5-fold cross-validation on the training set)
+
+| Model | ROC-AUC | PR-AUC | F1 | Recall | Precision |
+| --- | --- | --- | --- | --- | --- |
+| Random forest | 0.8464 | 0.6608 | 0.6299 | 0.7371 | 0.5501 |
+| **Logistic regression (selected)** | **0.8463** | **0.6642** | **0.6281** | **0.7980** | **0.5181** |
+| Histogram gradient boosting | 0.8450 | 0.6619 | 0.6338 | 0.7773 | 0.5352 |
+
+ROC-AUC ties to three decimals, so the tie-break is recall (catching churners is
+what the business needs), which selects logistic regression.
+
+### Held-out test set
+
+| Metric | Tuned threshold (0.35) | Default threshold (0.50) |
+| --- | --- | --- |
+| Recall | **0.717** | 0.508 |
+| Precision | 0.555 | 0.648 |
+| F1 | **0.625** | 0.570 |
+| Accuracy | 0.772 | 0.796 |
+
+ROC-AUC **0.842** · PR-AUC **0.635** · Brier score **0.138** (sigmoid-calibrated).
+Tuning the threshold catches 268 of 374 test churners instead of 190.
+
+### Time to churn (Cox proportional hazards)
+
+| Metric | Value |
+| --- | --- |
+| Concordance index, test / train | **0.845** / 0.858 |
+| Still active after 12 months (Kaplan-Meier) | month-to-month 70%, one-year 99%, two-year 100% |
+| Hazard ratio, two-year vs. month-to-month contract | 0.075 |
+| Proportional-hazards violations (p < 0.05) | 6 of 14 covariates (reported, see limitations) |
+
+### Retention budget (full Telco file, offer assumptions in `churn/config.py`)
+
+Expected net saving, with the share of the proven upper bound in brackets:
+
+| Budget | Optimised (Lagrangian) | Greedy by ratio | Top-N by risk (baseline) |
+| --- | --- | --- | --- |
+| 5,000 | **35,822** (~100%) | 35,822 (100%) | 14,113 (39%) |
+| 20,000 | **108,600** (~100%) | 99,975 (92%) | 51,507 (47%) |
+| 60,000 | **242,360** (~100%) | 120,792 (50%) | 129,669 (54%) |
+
+These depend entirely on the assumed offer costs and success rates, which are
+placeholders, not measured results.
+
+### Fairness (test set, tuned threshold)
+
+| Attribute | Recall by group | Flag (gap > 0.10) |
+| --- | --- | --- |
+| gender | Female 0.684 · Male 0.751 | none |
+| SeniorCitizen | 0: 0.670 · 1: 0.847 | recall, FPR |
+| Partner | No 0.774 · Yes 0.603 | recall, FPR |
+
+The flagged groups also have very different churn rates (seniors 44% vs. 23%,
+no partner 34% vs. 19%); see the model card for the interpretation.
+
+### Serving
+
+`POST /predict`: median **46 ms**, p95 76 ms end to end, of which the model
+call is a median of 22 ms (300 requests, in-process test client on a laptop).
+
+---
+
+## 🏗 Architecture
 
 ```mermaid
-flowchart TD
-    A[Telco CSV] --> B[clean + split<br/>churn/data.py]
-    B --> C[GridSearchCV x3 models<br/>5-fold, multi-metric]
-    C -->|ROC-AUC to 3dp, recall tie-break| D[select winner]
-    D --> E[calibrate<br/>CalibratedClassifierCV]
-    E --> F[tune threshold on<br/>calibrated out-of-fold probs]
-    F --> G[test report + Brier + TrainingStats]
-    G --> H[(models/registry/&lt;version&gt;<br/>model.joblib + manifest.json + model_card.md<br/>latest.json)]
-    H --> I[REST API<br/>uvicorn api:app]
-    H --> J[CLI<br/>predict / score / drift]
-    H --> K[Streamlit dashboard]
-    I --> K
+flowchart LR
+    subgraph Training ["Training: python -m churn train"]
+        D[(Telco CSV)] --> C[clean + stratified split]
+        C --> CV[3 candidates x grid search<br/>5-fold CV]
+        CV --> SEL[select: ROC-AUC, recall tie-break]
+        SEL --> CAL[calibrate + tune threshold]
+        CAL --> EV[test report · fairness report]
+        C --> SV[Kaplan-Meier + Cox model]
+    end
+
+    EV --> REG[(Model registry<br/>models/registry/version/<br/>model · survival · manifest · model card)]
+    SV --> REG
+
+    subgraph Serving
+        REG --> API[FastAPI service<br/>/predict · /predict/batch<br/>/explain/whatif · /retention/plan<br/>/health · /model · /metrics]
+        REG --> CLI[CLI<br/>predict · score · plan · drift · registry]
+        REG --> UI[Streamlit dashboard<br/>7 pages]
+        UI -. optional CHURN_API_URL .-> API
+    end
+
+    subgraph Logic ["Shared logic in churn/"]
+        EXP[explanations<br/>coefficients / SHAP]
+        CF[counterfactual what-if]
+        RET[retention optimiser]
+        VAL[validation + PSI drift]
+    end
+
+    API --- Logic
+    UI --- Logic
+    CLI --- Logic
 ```
 
 ---
 
-## 📊 Dataset Overview
+## ✨ Features
 
-The project uses the **Telco Customer Churn** dataset (`data/Telco-Customer-Churn.csv`), containing **7,043 customer records** with **21 attributes**:
-
-| Category | Attributes |
-| :--- | :--- |
-| **Customer Identification** | `customerID` (dropped during preprocessing) |
-| **Demographics** | `gender`, `SeniorCitizen`, `Partner`, `Dependents` |
-| **Account Information** | `tenure` (months), `Contract`, `PaperlessBilling`, `PaymentMethod`, `MonthlyCharges`, `TotalCharges` |
-| **Subscribed Services** | `PhoneService`, `MultipleLines`, `InternetService`, `OnlineSecurity`, `OnlineBackup`, `DeviceProtection`, `TechSupport`, `StreamingTV`, `StreamingMovies` |
-| **Target Variable** | `Churn` (`Yes` / `No`) |
-
----
-
-## 🔍 Exploratory Data Analysis (EDA)
-
-Located in [`notebooks/customer_churn_eda.ipynb`](notebooks/customer_churn_eda.ipynb), the analysis uncovers several key patterns:
-- **Contract Type**: Customers on **Month-to-month contracts** exhibit significantly higher churn rates compared to those on 1-year or 2-year agreements.
-- **Tenure**: Customers in their first 6–12 months have the highest attrition risk; churn drops precipitously as tenure increases.
-- **Internet Service**: Fiber optic internet subscribers churn at higher rates, often correlated with higher monthly charges and service complaints.
-- **Payment Method**: Customers paying via **Electronic Check** churn substantially more than those with automated payments (Bank Transfer / Credit Card).
-- **Add-on Services**: Tech Support and Online Security services act as strong retention anchors.
+| Area | What it does | Code |
+| --- | --- | --- |
+| **Model** | Logistic regression, random forest and gradient boosting in one sklearn `Pipeline` each; grid search with 5-fold CV; probability calibration (sigmoid/isotonic by CV Brier); decision threshold tuned on out-of-fold predictions. | `churn/model.py`, `churn/evaluate.py`, `churn/train.py` |
+| **Explanations** | Signed per-customer contributions: coefficient x value for linear models, SHAP (`TreeExplainer`) for tree models, behind one `top_factors` interface. | `churn/predict.py` |
+| **What-if** | Searches every combination of realistic changes (longer contract, automatic payment, adding OnlineSecurity/TechSupport, paperless billing) and returns those that lower the risk most. Never changes gender, SeniorCitizen, tenure and other fixed attributes. | `churn/counterfactual.py`, `POST /explain/whatif` |
+| **Retention optimiser** | Expected saving = P(churn) x success rate x value − cost; chooses at most one offer per customer within a budget using Lagrangian relaxation, with a proven upper bound; compared against greedy and top-N-by-risk. | `churn/retention.py`, `churn plan`, `POST /retention/plan` |
+| **Survival analysis** | Kaplan-Meier curves by contract and a Cox model; concordance index; proportional-hazards test; per-customer "likely months until churn" conditional on current tenure. | `churn/survival.py` |
+| **Fairness** | Recall, precision and FPR by gender, SeniorCitizen and Partner, with group churn rates, sample-size margins and a generated interpretation in every model card. | `churn/fairness.py` |
+| **Monitoring** | Input validation warnings per request; PSI drift per feature with green/amber/red status and a "retrain recommended" rule. | `churn/validation.py`, `churn drift`, Monitoring page |
+| **Registry** | Versioned models with provenance (git SHA, data hash, library versions), model card, `latest` pointer and one-command rollback. | `churn/registry.py` |
+| **API** | FastAPI with a request schema generated from one source (`churn/schema.py`), request ids, JSON logs, Prometheus metrics, 422/413/503/500 error contracts. | `churn/service/` |
+| **Dashboard** | Seven pages: Prediction, Churn Analysis, Model Performance, Batch Prediction, Retention Planner, Time to Churn, Monitoring. | `churn/ui/` |
+| **Quality** | mypy `--strict`, ruff, 203 pytest tests (unit, Hypothesis property tests, API contract tests, dashboard smoke tests), 94% coverage with an 85% gate, pre-commit, CI on Python 3.10–3.12, Docker build, Dependabot. | `tests/`, `.github/` |
 
 ---
 
-## ⚙️ Machine Learning Pipeline
+## 🚀 Quick start
 
-All preprocessing lives **inside a single scikit-learn `Pipeline`**, so it is refit
-on every cross-validation fold and travels with the saved model — training and
-serving can never encode a customer differently.
+```bash
+python -m venv .venv
+```
 
-### Data Cleaning (`churn/data.py`)
-1. **Identifier Removal**: `customerID` dropped (no predictive signal).
-2. **Type Coercion**: `TotalCharges` coerced from string to float (11 blank rows become `NaN`).
-3. **Target Decoding**: `Churn` mapped from `Yes`/`No` to `1`/`0`.
+Activate it (`.\.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate`
+on Linux/macOS), then:
 
-### Feature Engineering & Preprocessing (`churn/features.py`)
-4. **Engineered features**: `tenure_group` (bucketed tenure), `has_internet`, `num_addons` (count of the six add-on services). Row-local and robust to partial input — no fragile ratios.
-5. **Imputation**: median for numerics, most-frequent for categoricals — fit per fold.
-6. **Scaling**: `StandardScaler` on numeric columns.
-7. **Encoding**: `OneHotEncoder(handle_unknown="ignore")` — an unseen category at inference becomes an all-zero group instead of corrupting the row (no manual column re-indexing).
+```bash
+pip install -r requirements-dev.txt
+```
 
-### Model Training & Selection (`churn/train.py`, `churn/evaluate.py`)
-Candidate models, each a full pipeline with `class_weight="balanced"` (the target is only ~27% churn):
-- **Logistic Regression** — linear baseline, `C` tuned.
-- **Random Forest** — depth / leaf size tuned.
-- **HistGradientBoosting** — learning rate / depth / L2 tuned.
+```bash
+python -m churn train
+```
 
-Each candidate is grid-searched once with a **multi-metric stratified 5-fold CV**,
-ranked by **ROC-AUC** (accuracy is a poor choice under class imbalance). Because
-the three models finish within ~0.001 ROC-AUC of each other, the tie is broken by
-**recall** — the business cares most about catching churners — so Logistic
-Regression is selected. The winner (already refit on the full training set by the
-grid search) is evaluated on a held-out 20% test set at both the tuned and the
-default-0.5 threshold.
+```bash
+streamlit run app.py
+```
 
-### Decision Threshold
-The probability cutoff for the yes/no label is **tuned** (default: maximise
-churn-class F1 on out-of-fold predictions) rather than left at 0.5. At the tuned
-threshold (~0.60) churn recall on the test set is ~0.71 with precision ~0.56;
-against the original accuracy-selected model's recall of ~0.57 that is a large
-gain in churners caught. This is separate from the fixed business
-[risk bands](#-risk-assessment--business-actions).
+Training takes about 40 seconds on a 12-core laptop and registers a model under
+`models/registry/`. The dashboard opens at <http://localhost:8501>.
 
-### Calibration & Persistence
-The selected model is wrapped in `CalibratedClassifierCV` (method chosen by CV
-Brier score) so `predict_proba` is trustworthy. Each training run registers a
-version under `models/registry/<version>/`:
-- `model.joblib` — a `ChurnModel` = calibrated pipeline + uncalibrated base pipeline (for explanations) + tuned threshold + training-distribution snapshot + metadata.
-- `manifest.json` — provenance (git SHA, data SHA-256, library versions), all CV & test metrics.
-- `model_card.md` — human-readable summary + top feature weights.
-`models/registry/latest.json` points at the promoted version.
+With Docker (API on :8000, dashboard on :8501):
+
+```bash
+docker compose run --rm api python -m churn train
+```
+
+```bash
+docker compose up
+```
 
 ---
 
-## 📁 Project Structure
+## 🖥 Usage
+
+### Command line
+
+```bash
+python -m churn predict --tenure 4 --contract "Month-to-month" --internet-service "Fiber optic"
+python -m churn score --input customers.csv --output scored.csv
+python -m churn plan --budget 5000 --input customers.csv        # writes retention_plan.csv
+python -m churn drift --current customers.csv                   # PSI + retrain signal
+python -m churn registry list
+python -m churn registry promote <version>                       # rollback
+```
+
+### REST API
+
+```bash
+python -m churn serve          # http://localhost:8000, interactive docs at /docs
+```
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /predict` | Probability, label, risk tier, signed top factors, input warnings |
+| `POST /predict/batch` | The same for up to 1,000 customers |
+| `POST /explain/whatif` | Realistic changes that would lower this customer's risk |
+| `POST /retention/plan` | Which customers get which offer within a budget, with strategy comparison |
+| `GET /model` · `GET /health` · `GET /metrics` | Model metadata, liveness (503 without a model), Prometheus metrics |
+
+```bash
+curl -X POST localhost:8000/explain/whatif -H "content-type: application/json" \
+     -d '{"customer": {"tenure": 2, "Contract": "Month-to-month"}, "max_changes": 2}'
+```
+
+### Quality checks
+
+```bash
+make check      # ruff, ruff format --check, mypy --strict, pytest with the 85% coverage gate
+```
+
+---
+
+## 🧭 Key design decisions
+
+- **One pipeline from raw columns to prediction.** Feature engineering, imputation,
+  scaling and one-hot encoding live inside the saved scikit-learn `Pipeline`, so
+  training and serving cannot encode a customer differently, and unseen categories
+  become an all-zero group instead of an error.
+- **Select on ROC-AUC, break ties on recall, tune the threshold.** Accuracy is
+  misleading at a 26.5% churn rate. Missing a churner costs more than a spare
+  offer, so the threshold is tuned (0.35) rather than left at 0.5.
+- **Calibrate the probabilities.** The risk tiers and the budget optimiser's
+  expected saving both use P(churn) directly, so a predicted 30% must really mean
+  30%. The reliability curve and Brier score are saved with every model.
+- **Explanations through one interface.** Linear models get exact coefficient
+  contributions for free; tree models get SHAP. The API and UI do not care which.
+- **What-if by exhaustive search, not an optimiser.** Five actionable features with
+  at most two values each is about 130 candidates: brute force is exact, fast
+  (about 0.2 s) and easy to explain. Business rules (contracts only get longer,
+  add-ons need internet) keep suggestions realistic.
+- **Lagrangian relaxation for the budget.** An exact dynamic programme was tried
+  first, but rounding costs to budget steps distorted cheap offers by up to 40%.
+  The Lagrangian method needs no rounding and also yields an upper bound, so every
+  plan reports how close to optimal it is.
+- **Survival analysis without leakage.** `tenure` is the duration and
+  `TotalCharges` is roughly tenure x monthly charge, so neither is a Cox covariate.
+  Estimates are conditional on the customer's current tenure and are not
+  extrapolated past the observed 72 months.
+- **Fairness as a report, not a verdict.** With different churn rates across
+  groups, equal precision and equal FPR cannot both hold, so gaps are flagged for
+  review with base rates and sample-size margins next to them.
+- **No pickles in git.** Model binaries are generated (`python -m churn train`) and
+  the hosted demo trains on first start; only manifests and model cards are
+  committed.
+- **One schema, many interfaces.** `churn/schema.py` generates the API's pydantic
+  model, the CLI flags and the dashboard form, so they never drift apart.
+
+---
+
+## ⚠️ Limitations and future work
+
+**Limitations**
+
+- **Static, public dataset.** One snapshot of 7,043 customers from a single
+  (fictional) telecom company; results may not transfer to other businesses.
+- **Associations, not causes.** The what-if search and the hazard ratios describe
+  patterns in the data. Moving a customer to a two-year contract is not proven to
+  keep them; that needs an experiment.
+- **Business assumptions.** Offer costs, success rates and the 12-month value
+  horizon are illustrative placeholders, and the optimiser's savings scale with
+  them. The what-if search holds monthly charges fixed, so added services look free.
+- **Survival data.** Tenure is reconstructed from one snapshot, observed only up
+  to 72 months, and covariates are current values. Churn is U-shaped in tenure
+  (rising again past ~60 months, in the raw data too), and 6 of 14 covariates
+  violate the proportional-hazards assumption.
+- **Fairness.** Only three attributes are checked, the senior group has 98
+  churners in the test set (recall margin about ±0.07), and no mitigation is
+  applied.
+- **Drift.** PSI detects input shifts, not changes in the relationship between
+  inputs and churn (concept drift); that needs fresh labels.
+
+**Future work**
+
+- Use the survival model's expected remaining lifetime as the customer value in
+  the retention optimiser instead of a flat 12 months.
+- Learn offer success rates from an A/B test (uplift modelling) instead of assuming them.
+- Monitor prediction and label drift from the JSONL prediction log, and retrain on a schedule.
+- Add authentication and rate limiting before exposing the API publicly.
+- Time-varying Cox model (or stratification by contract) to address the
+  proportional-hazards violations.
+
+---
+
+## 📁 Project structure
 
 ```
 Customer-Churn-Prediction/
-├── api.py                       # ASGI entry point  (uvicorn api:app)
-├── app.py                       # Streamlit entry point
-├── pyproject.toml  Makefile  Dockerfile  docker-compose.yml  .env.example
-│
-├── churn/                       # core package
-│   ├── config.py                # pydantic-settings Settings (env CHURN_*) + schema constants
-│   ├── data.py                  # load_raw / coerce_features / clean / split
-│   ├── features.py              # engineered features + ColumnTransformer + name formatting
-│   ├── model.py                 # candidate models + grids; calibration helpers
-│   ├── evaluate.py              # GridSearchCV, selection, threshold tuning, test_report (+ Brier)
-│   ├── train.py                 # orchestration: compare -> calibrate -> tune -> register
-│   ├── predict.py               # ChurnModel, load_model() (registry-backed), predict_one()
-│   ├── registry.py              # ModelRegistry: save / load / list / promote (rollback)
-│   ├── validation.py            # TrainingStats, validate_features (warnings), PSI drift_report
-│   ├── batch.py                 # score_frame / score_csv (vectorised)
-│   ├── logging_.py              # JSON logging + request-id ContextVar
-│   ├── schema.py                # the 19 inputs — shared by CLI, API and dashboard
-│   ├── cli.py / __main__.py     # python -m churn {train,predict,score,drift,serve,registry}
-│   ├── app_ui.py                # Streamlit dashboard (local model OR remote API)
-│   └── service/                 # FastAPI app: app, routes, models, deps, middleware, metrics
-│
+├── app.py · api.py              # Streamlit and ASGI entry points
+├── churn/
+│   ├── config.py · schema.py    # settings (CHURN_* env vars), business assumptions, the 19 inputs
+│   ├── data.py · features.py    # loading, cleaning, feature pipeline
+│   ├── model.py · evaluate.py · train.py   # candidates, CV, calibration, threshold, training run
+│   ├── predict.py · batch.py    # ChurnModel (scoring + explanations), batch scoring
+│   ├── counterfactual.py        # what-if search
+│   ├── retention.py             # budget optimiser
+│   ├── survival.py              # Kaplan-Meier + Cox model
+│   ├── fairness.py              # per-group metrics and interpretation
+│   ├── validation.py            # input checks, PSI drift, retrain signal
+│   ├── registry.py              # versioned model registry
+│   ├── cli.py                   # python -m churn ...
+│   ├── service/                 # FastAPI app, routes, schemas, middleware, metrics
+│   └── ui/                      # one module per dashboard page + shared components and theme
+├── tests/                       # 203 tests
+├── docs/                        # DEPLOYMENT.md, INTERVIEW_NOTES.md
 ├── data/Telco-Customer-Churn.csv
-├── models/registry/<version>/   # generated: model.joblib + manifest.json + model_card.md
+├── models/registry/             # manifests and model cards (binaries are generated)
 ├── notebooks/customer_churn_eda.ipynb
-├── tests/                       # 65 pytest cases
-└── .github/workflows/ci.yml
+└── Dockerfile · docker-compose.yml · Makefile · pyproject.toml · .pre-commit-config.yaml
 ```
 
 ---
 
-## 🚀 Installation & Setup
+## 🗃 Dataset
 
-### Prerequisites
-- Python 3.10 or higher
-- pip package manager
+[Telco Customer Churn](data/Telco-Customer-Churn.csv): 7,043 customers, 19 input
+attributes plus `customerID` and the target `Churn` (1,869 churners, 26.5%). 11
+customers have a blank `TotalCharges` (all with tenure 0); it is imputed inside the
+pipeline.
 
-### 1. Clone or Open the Repository
-```bash
-cd Customer-Churn-Prediction
-```
+| Group | Attributes |
+| --- | --- |
+| Demographics | `gender`, `SeniorCitizen`, `Partner`, `Dependents` |
+| Account | `tenure`, `Contract`, `PaperlessBilling`, `PaymentMethod`, `MonthlyCharges`, `TotalCharges` |
+| Services | `PhoneService`, `MultipleLines`, `InternetService`, `OnlineSecurity`, `OnlineBackup`, `DeviceProtection`, `TechSupport`, `StreamingTV`, `StreamingMovies` |
 
-### 2. Activate the Virtual Environment
-
-A ready `.venv/` ships with the project. **Activate it in every new terminal** —
-this is what makes `python`, `pytest`, `streamlit` and `ruff` resolve correctly:
-
-- **Windows (PowerShell):** `.\.venv\Scripts\Activate.ps1`
-- **Linux / macOS:** `source .venv/bin/activate`
-
-Your prompt should now start with `(.venv)`. Not activating is the #1 cause of
-`ModuleNotFoundError`. See **[PROJECT_GUIDE.md](PROJECT_GUIDE.md) §2 and §10**.
-
-Only if `.venv/` is missing or broken, recreate it:
-```powershell
-Remove-Item -Recurse -Force .\.venv    # delete the old one first
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt     # runtime deps + pytest + ruff
-```
+Churn rate by group in the raw data: month-to-month 42.7% vs. two-year 2.8%;
+electronic check 45.3% vs. automatic payments 15–17%; fiber 41.9% vs. DSL 19.0%.
 
 ---
 
-## 🖥️ How to Run
+## 📚 Further reading
 
-Activate the venv first (see Setup). All commands run from the project root; the
-package needs no installation (`pip install -e .` also works and adds a `churn`
-console script). Full reference: **[PROJECT_GUIDE.md §9](PROJECT_GUIDE.md)**.
+- [docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md): every component, why it was
+  chosen, and likely interview questions with answers
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): deploying the dashboard
+- [PROJECT_GUIDE.md](PROJECT_GUIDE.md): configuration reference and troubleshooting
+- `models/registry/<version>/model_card.md`: the full report for each model version
 
-### 1. Train, calibrate and register a model
-> **Fresh clone? Run this first.** The trained `model.joblib` is git-ignored, so the
-> API, CLI and dashboard have no model to load until you train one.
+## 📄 License
 
-```bash
-python -m churn train                                       # ~35 s
-python -m churn train --threshold-objective recall_at_precision
-```
-Grid-searches three models, selects by CV ROC-AUC (recall tie-break), calibrates
-the winner (`CalibratedClassifierCV`), tunes the decision threshold on calibrated
-out-of-fold probabilities, snapshots the training distribution, and registers
-`models/registry/<version>/` (`model.joblib` + `manifest.json` + `model_card.md`),
-promoting it to `latest`.
-
-```text
-random_forest               0.8464    0.6608  0.6299   0.7371     0.5501
-logistic_regression         0.8463    0.6642  0.6281   0.7980     0.5181  <-- selected
-hist_gradient_boosting      0.8450    0.6619  0.6338   0.7773     0.5352
-Registered '20260905T010415Z'  model=logistic_regression  test ROC-AUC=0.8417  recall=0.818 @ threshold 0.24  Brier=0.1378
-```
-
-### 2. Real-time REST API
-```bash
-python -m churn serve                       # http://localhost:8000  (docs at /docs)
-# or:  uvicorn api:app --host 0.0.0.0 --port 8000 --workers 4
-```
-```bash
-curl -X POST localhost:8000/predict -H 'content-type: application/json' \
-     -d '{"tenure":4,"Contract":"Month-to-month","InternetService":"Fiber optic"}'
-# {"churn":true,"probability":0.70,"risk_tier":"Moderate","threshold":0.35,
-#  "top_factors":[...],"warnings":[],"model_version":"...","request_id":"...","latency_ms":10.3}
-```
-`GET /health` · `GET /model` · `POST /predict/batch` · `POST /explain/whatif` (changes that would lower the risk) · `GET /metrics` (Prometheus).
-Unknown/invalid fields → `422`; out-of-training-range values → scored with a `warnings` entry.
-
-### 3. Terminal prediction
-```bash
-python -m churn predict --tenure 4 --contract "Month-to-month" \
-    --internet-service "Fiber optic" --payment-method "Electronic check"
-python -m churn predict --json --tenure 4 --contract "Month-to-month"
-python -m churn predict --interactive          # prompts for all 19 fields
-```
-
-### 4. Batch scoring & drift
-```bash
-python -m churn score --input customers.csv --output scored.csv
-python -m churn drift --current customers.csv          # per-feature PSI vs. training data
-```
-
-### 5. Model registry
-```bash
-python -m churn registry list
-python -m churn registry show latest
-python -m churn registry promote 20260905T004403Z     # rollback / forward
-```
-
-### 6. Streamlit dashboard
-```bash
-streamlit run app.py                                  # loads the model locally
-CHURN_API_URL=http://localhost:8000 streamlit run app.py   # calls the API instead
-```
-
-### 7. Containers
-```bash
-docker compose run --rm api python -m churn train     # populate the models/ volume
-docker compose up                                     # API :8000 + dashboard :8501
-```
-
-### 8. Tests & lint
-```bash
-pytest          # 65 tests
-ruff check .
-```
-
----
-
-## 🎯 Risk Assessment & Business Actions
-
-The dashboard translates churn probabilities into concrete business tiers. These
-**fixed bands drive the recommended action** and are independent of the tuned
-decision threshold (which only sets the yes/no "predicted to churn" label).
-
-| Churn Probability | Risk Tier | Recommended Business Strategy |
-| :---: | :---: | :--- |
-| **$\ge$ 70%** | 🚨 **High Risk** | Immediate intervention: Customer success outreach, special contract discounts, loyalty incentives, or complimentary service upgrades. |
-| **40% – 69%** | ⚠️ **Moderate Risk** | Targeted engagement: Follow-up survey, satisfaction check, offer automated payment incentives or 1-year contract discounts. |
-| **$<$ 40%** | ✅ **Low Risk** | Healthy account: Routine communication, cross-sell/up-sell opportunities, and regular loyalty rewards. |
-
----
-
-## 🛠️ Technologies Used
-
-- **Language**: Python 3.10+
-- **Machine Learning**: [scikit-learn](https://scikit-learn.org/) — `Pipeline`, `ColumnTransformer`, `GridSearchCV`, `CalibratedClassifierCV`, Logistic Regression / Random Forest / HistGradientBoosting
-- **Data**: [pandas](https://pandas.pydata.org/), [numpy](https://numpy.org/), [scipy](https://scipy.org/)
-- **API**: [FastAPI](https://fastapi.tiangolo.com/), [uvicorn](https://www.uvicorn.org/), [pydantic](https://docs.pydantic.dev/) + [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
-- **Observability**: [prometheus-client](https://github.com/prometheus/client_python), structured JSON logging
-- **Dashboard**: [Streamlit](https://streamlit.io/); **Viz**: [matplotlib](https://matplotlib.org/), [seaborn](https://seaborn.pydata.org/)
-- **Serialization**: [joblib](https://joblib.readthedocs.io/)
-- **Tooling**: [pytest](https://docs.pytest.org/), [ruff](https://docs.astral.sh/ruff/), Docker, GitHub Actions, Make
-
----
-
-
-## 📄 Contributing & License
-
-Contributions, issues, and feature requests are welcome! Feel free to open a pull request or issue.
-
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)

@@ -14,6 +14,7 @@ logs/
 .env
 .env.*
 models/registry/*/model.joblib
+models/registry/*/survival.joblib
 docker-compose.yml
 Dockerfile
 .dockerignore

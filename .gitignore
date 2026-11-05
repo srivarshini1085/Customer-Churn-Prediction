@@ -22,6 +22,7 @@ logs/
 
 # Model registry: track manifests + cards, not the binary artifacts
 models/registry/**/model.joblib
+models/registry/**/survival.joblib
 models/*.pkl
 models/*.joblib
 
@@ -37,6 +38,7 @@ Thumbs.db
 # Generated scoring output
 scored_customers.csv
 scored_*.csv
+retention_plan*.csv
 
 # Test / type-check artefacts
 .coverage

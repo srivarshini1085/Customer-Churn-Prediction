@@ -11,6 +11,7 @@ configurable and stays as plain module constants.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -48,6 +49,13 @@ class Settings(BaseSettings):
     api_url: str | None = None
     api_batch_limit: int = Field(default=1000, ge=1)
     log_json: bool = False
+    #: Train and register a model when the dashboard starts without a loadable one
+    #: (set CHURN_AUTO_TRAIN=true on Streamlit Cloud / Hugging Face Spaces).
+    auto_train: bool = False
+
+    # -- retention planning (business assumption, see RETENTION_OFFERS) ----- #
+    #: Months of revenue a retained customer is assumed to bring in.
+    retention_horizon_months: int = Field(default=12, ge=1)
 
     @property
     def registry_dir(self) -> Path:
@@ -170,3 +178,103 @@ RISK_ACTIONS: dict[str, str] = {
         "Healthy account: routine communication, cross-sell / up-sell and regular loyalty rewards."
     ),
 }
+
+# --------------------------------------------------------------------------- #
+# Retention offers — BUSINESS ASSUMPTIONS, not learned from data
+# --------------------------------------------------------------------------- #
+# These numbers are illustrative placeholders for a portfolio project. In a real
+# deployment they would come from the finance team (costs) and from A/B tests of
+# past campaigns (success rates). Every optimiser result scales with them.
+
+
+@dataclass(frozen=True)
+class RetentionOffer:
+    """A retention action and its assumed cost and effect.
+
+    Cost to the business for one customer:
+    ``fixed_cost + discount_rate * MonthlyCharges * discount_months``.
+    ``success_rate`` is the assumed probability that the offer keeps a customer
+    who would otherwise have churned.
+    """
+
+    name: str
+    label: str
+    fixed_cost: float
+    success_rate: float
+    discount_rate: float = 0.0
+    discount_months: int = 0
+
+
+RETENTION_OFFERS: tuple[RetentionOffer, ...] = (
+    RetentionOffer(
+        name="retention_call",
+        label="Customer-success call",
+        fixed_cost=10.0,
+        success_rate=0.10,
+    ),
+    RetentionOffer(
+        name="discount_20pct_3m",
+        label="20% discount for 3 months",
+        fixed_cost=5.0,
+        success_rate=0.25,
+        discount_rate=0.20,
+        discount_months=3,
+    ),
+    RetentionOffer(
+        name="contract_bundle",
+        label="1-year contract with 12 months free Tech Support",
+        fixed_cost=60.0,
+        success_rate=0.40,
+    ),
+)
+
+#: The single offer the naive "top-N by risk" baseline sends to everyone.
+BASELINE_OFFER: str = "discount_20pct_3m"
+
+# --------------------------------------------------------------------------- #
+# Survival analysis (time to churn) — see churn.survival
+# --------------------------------------------------------------------------- #
+
+#: Categorical covariates of the Cox model, one-hot encoded against the first
+#: (baseline) level listed here.
+SURVIVAL_CATEGORICAL: dict[str, tuple[str, ...]] = {
+    "Contract": ("Month-to-month", "One year", "Two year"),
+    "InternetService": ("DSL", "Fiber optic", "No"),
+    "PaymentMethod": (
+        "Electronic check",
+        "Mailed check",
+        "Bank transfer (automatic)",
+        "Credit card (automatic)",
+    ),
+}
+#: Yes/No covariates, encoded as 1 when the value is "Yes".
+SURVIVAL_FLAGS: tuple[str, ...] = (
+    "OnlineSecurity",
+    "TechSupport",
+    "PaperlessBilling",
+    "Partner",
+    "Dependents",
+)
+#: tenure is the duration and TotalCharges ~ tenure x MonthlyCharges, so both are
+#: deliberately left out: using them would leak the answer into the covariates.
+SURVIVAL_EXCLUDED: tuple[str, ...] = ("tenure", "TotalCharges")
+#: Ridge penalty for the Cox fit (small; keeps estimates stable for rare levels).
+SURVIVAL_PENALIZER: float = 0.01
+#: Horizon for the "probability of churning within N months" estimate.
+SURVIVAL_HORIZON_MONTHS: int = 12
+#: Significance level used to flag proportional-hazards violations.
+SURVIVAL_PH_ALPHA: float = 0.05
+
+# --------------------------------------------------------------------------- #
+# Responsible ML: fairness report and drift monitoring
+# --------------------------------------------------------------------------- #
+
+#: Attributes the fairness report breaks metrics down by.
+FAIRNESS_ATTRIBUTES: tuple[str, ...] = ("gender", "SeniorCitizen", "Partner")
+#: A between-group gap in recall / precision / FPR larger than this is flagged.
+FAIRNESS_GAP_FLAG: float = 0.10
+
+#: Retrain is recommended when any feature is red, or at least this many are amber.
+DRIFT_AMBER_RETRAIN_COUNT: int = 3
+#: Below this many rows PSI is too noisy to act on; the monitoring page warns.
+DRIFT_MIN_ROWS: int = 100

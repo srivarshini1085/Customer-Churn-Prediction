@@ -7,7 +7,7 @@ else
     BIN := $(VENV)/bin
 endif
 
-.PHONY: help install train test cov typecheck check lint format serve app score drift registry docker-build docker-up clean
+.PHONY: help install train test cov typecheck check lint format serve app score plan drift registry docker-build docker-up clean
 
 help:
 	@echo "install       create venv + install dev deps"
@@ -21,6 +21,7 @@ help:
 	@echo "serve         run the REST API (uvicorn, reload)"
 	@echo "app           run the Streamlit dashboard"
 	@echo "score IN= OUT= score a CSV"
+	@echo "plan BUDGET= IN= retention plan for a CSV within a budget"
 	@echo "drift  IN=    PSI drift report for a CSV"
 	@echo "registry      list registered model versions"
 	@echo "docker-build  build the container image"
@@ -62,6 +63,9 @@ app:
 
 score:
 	$(BIN)/python -m churn score --input "$(IN)" --output "$(OUT)"
+
+plan:
+	$(BIN)/python -m churn plan --budget "$(BUDGET)" --input "$(IN)"
 
 drift:
 	$(BIN)/python -m churn drift --current "$(IN)"

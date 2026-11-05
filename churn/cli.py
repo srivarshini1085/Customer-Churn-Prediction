@@ -1,4 +1,4 @@
-"""Command-line interface: ``python -m churn {train,predict,score,drift,serve,registry}``.
+"""Command-line interface: ``python -m churn {train,predict,score,plan,drift,serve,registry}``.
 
 Heavy imports are deferred into the subcommand handlers so ``churn --help`` and
 argument errors stay fast.
@@ -62,6 +62,24 @@ def _build_parser() -> argparse.ArgumentParser:
     score_p.add_argument("--input", required=True, help="input CSV path")
     score_p.add_argument("--output", required=True, help="output CSV path")
     score_p.add_argument("--model-version", default=None, help="pin a registry version")
+
+    plan_p = sub.add_parser(
+        "plan", parents=[common], help="choose retention offers within a budget"
+    )
+    plan_p.add_argument("--budget", type=float, required=True, help="total budget to spend")
+    plan_p.add_argument("--input", required=True, help="CSV of customers to consider")
+    plan_p.add_argument(
+        "--output",
+        default="retention_plan.csv",
+        help="where to write the action list (default: retention_plan.csv)",
+    )
+    plan_p.add_argument(
+        "--strategy",
+        choices=["optimized", "greedy", "top_risk"],
+        default="optimized",
+        help="strategy whose action list is written (default: optimized)",
+    )
+    plan_p.add_argument("--model-version", default=None, help="pin a registry version")
 
     drift_p = sub.add_parser(
         "drift", parents=[common], help="PSI drift report vs. the training data"
@@ -163,11 +181,46 @@ def _run_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_plan(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    import pandas as pd
+
+    from churn.predict import load_model
+    from churn.retention import compare_strategies
+
+    if args.budget < 0:
+        print("--budget must be non-negative")
+        return 2
+    model = load_model(args.model_version)
+    plans = compare_strategies(pd.read_csv(args.input), model, args.budget)
+
+    print(f"\nRetention plan for a budget of {args.budget:,.2f}  (model {model.version})")
+    print("Offer costs and success rates are business assumptions (churn.config).\n")
+    print(
+        f"{'strategy':<12}{'targeted':>9}{'spent':>12}{'exp. saving':>14}"
+        f"{'roi':>7}{'% of best':>11}"
+    )
+    print("-" * 65)
+    for plan in plans.values():
+        print(
+            f"{plan.strategy:<12}{plan.targeted:>9}{plan.spent:>12,.2f}"
+            f"{plan.expected_saving:>14,.2f}{plan.roi:>7.2f}{plan.share_of_optimum:>11.1%}"
+        )
+
+    chosen = plans[args.strategy]
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    chosen.action_table().to_csv(output, index=False)
+    print(f"\nWrote {chosen.targeted} actions ({chosen.strategy}) to {output}")
+    return 0
+
+
 def _run_drift(args: argparse.Namespace) -> int:
     import pandas as pd
 
     from churn.predict import load_model
-    from churn.validation import PSI_MAJOR, drift_report
+    from churn.validation import PSI_MAJOR, PSI_MINOR, drift_report, drift_summary
 
     model = load_model(args.model_version)
     if model.training_stats is None:
@@ -176,12 +229,15 @@ def _run_drift(args: argparse.Namespace) -> int:
 
     df = pd.read_csv(args.current)
     report = drift_report(model.training_stats, df)
-    print(f"\nDrift vs. training data of model {model.version}  (PSI > {PSI_MAJOR} = drift)\n")
+    summary = drift_summary(report)
+    print(
+        f"\nDrift vs. training data of model {model.version}  "
+        f"(green < {PSI_MINOR} <= amber < {PSI_MAJOR} <= red)\n"
+    )
     print(f"{'feature':<22}{'psi':>10}   status")
     print("-" * 44)
     for feature, row in sorted(report.items(), key=lambda kv: kv[1]["psi"], reverse=True):
-        flag = "DRIFT" if row["drifted"] else "ok"
-        print(f"{feature:<22}{row['psi']:>10.4f}   {flag}")
+        print(f"{feature:<22}{row['psi']:>10.4f}   {summary['statuses'][feature]}")
     drifted = [f for f, r in report.items() if r["drifted"]]
     print(
         "\n"
@@ -191,6 +247,8 @@ def _run_drift(args: argparse.Namespace) -> int:
             else "No drift detected."
         )
     )
+    verdict = "RETRAIN RECOMMENDED" if summary["retrain_recommended"] else "No retraining needed"
+    print(f"{verdict}: {summary['reason']}.")
     return 1 if drifted else 0
 
 
@@ -233,6 +291,7 @@ _HANDLERS = {
     "train": _run_train,
     "predict": _run_predict,
     "score": _run_score,
+    "plan": _run_plan,
     "drift": _run_drift,
     "serve": _run_serve,
     "registry": _run_registry,
