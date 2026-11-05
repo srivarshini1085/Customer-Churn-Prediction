@@ -18,7 +18,7 @@ def _load_batch() -> pd.DataFrame | None:
         ["Upload CSV", "Sample: last 1,000 rows of the Telco data"],
         horizontal=True,
     )
-    if source.startswith("Sample"):
+    if source is not None and source.startswith("Sample"):
         path = config.settings.data_path
         if not path.exists():
             st.error(f"Sample dataset not found at {path}.")

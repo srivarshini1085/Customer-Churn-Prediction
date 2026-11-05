@@ -37,7 +37,7 @@ def _load_csv() -> bytes | None:
         ["Sample dataset (Telco, 7,043 customers)", "Upload CSV"],
         horizontal=True,
     )
-    if source.startswith("Sample"):
+    if source is not None and source.startswith("Sample"):
         path = config.settings.data_path
         if not path.exists():
             st.error(f"Sample dataset not found at {path}.")
@@ -144,6 +144,8 @@ def retention_page() -> None:
     choice = st.selectbox(
         "Strategy to export", list(STRATEGIES), format_func=_STRATEGY_LABELS.__getitem__
     )
+    if choice is None:
+        return
     actions = plans[choice].action_table()
     if actions.empty:
         st.info("No customer is worth an offer at this budget.")
